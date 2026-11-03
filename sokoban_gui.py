@@ -96,7 +96,7 @@ class SokobanApp:
                     self._undo()
                 elif char in ("r", "к"):
                     self._restart()
-                elif char in ("n", "т"):
+                elif event.key == pygame.K_n or char in ("n", "т"):
                     self._next_level()
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_click(event.pos)
