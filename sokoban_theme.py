@@ -150,6 +150,7 @@ class StorybookSokobanApp(SokobanApp):
         self.screen = self.canvas
         self.screen.blit(self.background, (0, 0))
         self.buttons = []
+        self.buttons = []
         self._draw_header(DESIGN_SIZE[0])
         self._draw_isometric_board(pygame.Rect(76, 135, 1000, 690))
         self._update_particles()
