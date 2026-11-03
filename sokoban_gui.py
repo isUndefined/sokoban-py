@@ -79,21 +79,24 @@ class SokobanApp:
             elif event.type == pygame.VIDEORESIZE:
                 self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
             elif event.type == pygame.KEYDOWN:
+                # Use event.unicode as well as key constants so WASD works
+                # with both Latin and Russian keyboard layouts.
+                char = event.unicode.lower()
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
-                elif event.key in (pygame.K_UP, pygame.K_w):
+                elif event.key == pygame.K_UP or char in ("w", "ц"):
                     self._move(0, -1)
-                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                elif event.key == pygame.K_DOWN or char in ("s", "ы"):
                     self._move(0, 1)
-                elif event.key in (pygame.K_LEFT, pygame.K_a):
+                elif event.key == pygame.K_LEFT or char in ("a", "ф"):
                     self._move(-1, 0)
-                elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                elif event.key == pygame.K_RIGHT or char in ("d", "в"):
                     self._move(1, 0)
-                elif event.key in (pygame.K_BACKSPACE, pygame.K_z, pygame.K_u):
+                elif event.key == pygame.K_BACKSPACE or char in ("z", "я", "u", "г"):
                     self._undo()
-                elif event.key == pygame.K_r:
+                elif char in ("r", "к"):
                     self._restart()
-                elif event.key == pygame.K_n:
+                elif char in ("n", "т"):
                     self._next_level()
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_click(event.pos)
