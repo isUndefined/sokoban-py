@@ -1,7 +1,7 @@
 """Fixed-layout, top-down Sokoban UI inspired by the approved 2D screen.
 
-The game logic still lives entirely in ``sokoban.Game``. Presentation uses
-five original transparent PNG assets; no isometric or perspective renderer.
+The game logic still lives entirely in ``sokoban.Game``. Presentation uses five consistent, transparent sprites prepared from the
+approved design reference; no isometric or perspective renderer.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class FlatSokobanApp:
 
     def __init__(self, start_level: int = 0) -> None:
         pygame.init()
-        pygame.display.set_caption("Sokoban — Classic Puzzle")
+        pygame.display.set_caption("Sokoban")
         self.screen = pygame.display.set_mode((1280, 854), pygame.RESIZABLE)
         self.clock = pygame.time.Clock()
         self.canvas = pygame.Surface((DESIGN_W, DESIGN_H)).convert()
@@ -76,29 +76,34 @@ class FlatSokobanApp:
         pygame.key.set_repeat(185, 165)
 
     def _load_assets(self) -> dict[str, pygame.Surface]:
+        """Read one optimized atlas containing the approved mockup's 2D sprites."""
+        path = ASSETS / "atlas.png"
         names = ("floor", "wall", "crate", "goal", "player_up")
-        assets = {}
-        for name in names:
-            path = ASSETS / f"{name}.png"
-            try:
-                assets[name] = pygame.image.load(str(path)).convert_alpha()
-            except (OSError, pygame.error) as exc:
-                raise RuntimeError(f"Missing 2D game asset: {path}") from exc
-        return assets
+        try:
+            atlas = pygame.image.load(str(path)).convert_alpha()
+        except (OSError, pygame.error) as exc:
+            raise RuntimeError(f"Missing 2D sprite atlas: {path}") from exc
+        cell = 128
+        expected = (cell * len(names), cell)
+        if atlas.get_size() != expected:
+            raise RuntimeError(f"Sprite atlas must be {expected}, got {atlas.get_size()}")
+        return {name: atlas.subsurface(pygame.Rect(i * cell, 0, cell, cell)).copy()
+                for i, name in enumerate(names)}
 
     @staticmethod
     def _make_background() -> pygame.Surface:
-        backdrop = pygame.Surface((DESIGN_W, DESIGN_H))
-        for y in range(DESIGN_H):
-            t = y / DESIGN_H
-            c = tuple(round(a + (b - a) * t) for a, b in zip(BG_TOP, BG_BOTTOM))
-            pygame.draw.line(backdrop, c, (0, y), (DESIGN_W, y))
-        # Flat broad color accents, without a pseudo-3D environment.
-        shade = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
-        pygame.draw.circle(shade, (32, 80, 142, 28), (DESIGN_W // 2, 430), 550)
-        pygame.draw.circle(shade, (31, 66, 117, 16), (110, 880), 300)
-        backdrop.blit(shade, (0, 0))
-        return backdrop
+        """Smooth navy radial backdrop without the visible circular overlay."""
+        small = pygame.Surface((192, 128))
+        for y in range(128):
+            for x in range(192):
+                dx = (x - 96) / 120
+                dy = (y - 51) / 105
+                glow = max(0, 1 - (dx*dx + dy*dy)) ** 2
+                small.set_at((x, y),
+                             (round(7 + 6 * glow),
+                              round(23 + 15 * glow),
+                              round(48 + 28 * glow)))
+        return pygame.transform.smoothscale(small, (DESIGN_W, DESIGN_H))
 
     def _asset(self, name: str, size: int) -> pygame.Surface:
         key = name, size
@@ -195,7 +200,6 @@ class FlatSokobanApp:
             pygame.draw.circle(self.canvas,c,(x+14,y-3),4)
 
     def _header(self) -> None:
-        pygame.draw.line(self.canvas, (48, 82, 132), (36, 105), (1498, 105), 2)
         self.canvas.blit(self._asset("crate", 68), (43, 11))
         self._text("Sokoban", "brand", (127, 9))
         pygame.draw.line(self.canvas, (57, 96, 153), (413, 17), (413, 78), 4)
@@ -215,9 +219,11 @@ class FlatSokobanApp:
     def _board_geometry(self) -> tuple[int, int, int]:
         rows = self.game.level.rows
         cols, nr = len(rows[0]), len(rows)
-        tile = min(107, (990 - 40) // cols, (790 - 30) // nr)
-        x = 200 + (1000 - cols * tile) // 2
-        y = 118 + (788 - nr * tile) // 2
+        # The board has its own fixed zone between HUD and controls.
+        # Preserve breathing room while making the 13x10 first map prominent.
+        tile = min(107, 1060 // cols, 780 // nr)
+        x = (DESIGN_W - cols * tile) // 2
+        y = 118 + (784 - nr * tile) // 2
         return x, y, tile
 
     @staticmethod
@@ -249,14 +255,14 @@ class FlatSokobanApp:
         x0, y0, tile = self._board_geometry()
         self._board = x0, y0, tile
         outside = self._outside_tiles(rows)
-        # Cell-aligned flat silhouette, including non-rectangular level outlines.
-        for gy, row in enumerate(rows):
-            for gx, _ in enumerate(row):
-                if (gx, gy) in outside:
-                    continue
-                shadow = pygame.Rect(x0 + gx * tile - 5, y0 + gy * tile + 6,
-                                     tile + 10, tile + 10)
-                pygame.draw.rect(self.canvas, (4, 14, 30), shadow, border_radius=10)
+        # A restrained perimeter shadow belongs under wall tiles only.
+        # No dark grid-shaped blocks under the continuous floor.
+        for wx, wy in self.game.walls:
+            if (wx, wy) in outside:
+                continue
+            shadow = pygame.Rect(x0 + wx * tile - 2, y0 + wy * tile + 4,
+                                 tile + 4, tile + 2)
+            pygame.draw.rect(self.canvas, (3, 12, 28), shadow, border_radius=12)
         walls = self.game.walls
         for gy, row in enumerate(rows):
             for gx, _ in enumerate(row):
@@ -265,19 +271,8 @@ class FlatSokobanApp:
                 name = "wall" if (gx, gy) in walls else "floor"
                 self.canvas.blit(self._asset(name, tile), (x0 + gx * tile, y0 + gy * tile))
 
-        # Coalesce adjacent wall tiles visually: add contours only where the
-        # wall meets an open tile or the outside, rather than embossing each
-        # wall tile as a separate block. This removes the repeating "stamp".
-        for wx, wy in walls:
-            left, top = x0 + wx * tile, y0 + wy * tile
-            neighbors = ((0, -1, (left, top), (left + tile, top)),
-                         (0, 1, (left, top + tile), (left + tile, top + tile)),
-                         (-1, 0, (left, top), (left, top + tile)),
-                         (1, 0, (left + tile, top), (left + tile, top + tile)))
-            for dx, dy, start, end in neighbors:
-                if (wx + dx, wy + dy) not in walls:
-                    pygame.draw.line(self.canvas, (19, 43, 78), start, end, 6)
-                    pygame.draw.line(self.canvas, (154, 183, 225), start, end, 2)
+        # Preserve each illustrated blue wall tile's rounded border.
+        # Merging tile contours previously produced a flat blue block.
 
         for gx, gy in self.game.goals:
             self.canvas.blit(self._asset("goal", tile), (x0 + gx * tile, y0 + gy * tile))
@@ -300,7 +295,7 @@ class FlatSokobanApp:
         if anim and pct < 1:
             px = anim.source[0] + (anim.target[0] - anim.source[0]) * eased
             py = anim.source[1] + (anim.target[1] - anim.source[1]) * eased
-        person_size = round(tile * 1.07)
+        person_size = round(tile * 1.35)
         person = self._player(person_size)
         self.canvas.blit(person, (round(x0 + (px + .5) * tile - person_size / 2),
                                   round(y0 + (py + .5) * tile - person_size / 2)))
@@ -342,7 +337,7 @@ class FlatSokobanApp:
         self._text("ВЫБОР УРОВНЯ", "big", (768, 326), center=True)
         for idx, level in enumerate(self.game.levels):
             self._button(pygame.Rect(579, 366 + idx * 83, 378, 62),
-                         f"{idx + 1}. {level.name}", f"level:{idx}", variant="blue")
+                         f"Уровень {idx + 1}", f"level:{idx}", variant="blue")
         self._button(pygame.Rect(632, 642, 272, 65), "Продолжить", "close", variant="gray")
 
     def _draw(self) -> None:
@@ -462,10 +457,20 @@ def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Top-down Sokoban")
     parser.add_argument("--level", type=int, default=1)
+    parser.add_argument("--screenshot", metavar="FILE", default=None,
+                        help="capture a real frame in Pygame (SDL dummy driver supported)")
     args = parser.parse_args()
     if not 1 <= args.level <= len(LEVELS):
         parser.error(f"--level must be 1..{len(LEVELS)}")
-    FlatSokobanApp(start_level=args.level - 1).run()
+    app = FlatSokobanApp(start_level=args.level - 1)
+    if args.screenshot:
+        try:
+            app._draw()
+            pygame.image.save(app.screen, args.screenshot)
+        finally:
+            pygame.quit()
+    else:
+        app.run()
 
 
 if __name__ == "__main__":
