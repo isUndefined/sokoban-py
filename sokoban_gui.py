@@ -73,7 +73,7 @@ class SokobanApp:
         pygame.key.set_repeat(210, 210)
 
     def _load_hero_sheet(self) -> pygame.Surface:
-        asset = Path(__file__).parent / "assets" / "hero_walk.webp"
+        asset = Path(__file__).parent / "assets" / "hero_walk.png"
         try:
             return pygame.image.load(str(asset)).convert_alpha()
         except (pygame.error, FileNotFoundError) as exc:
