@@ -31,6 +31,8 @@ class StorybookSokobanApp(SokobanApp):
     def __init__(self, start_level: int = 0) -> None:
         super().__init__(start_level)
         self.canvas = pygame.Surface(DESIGN_SIZE).convert()
+        self.art = self._load_art()
+        self._art_cache: dict[tuple[str, int, int], pygame.Surface] = {}
         self.background = self._make_background()
         self._viewport = (0, 0, DESIGN_SIZE[0], DESIGN_SIZE[1])
         self._hero_cache: dict[tuple[int, int, int], pygame.Surface] = {}
@@ -150,7 +152,6 @@ class StorybookSokobanApp(SokobanApp):
         self.screen = self.canvas
         self.screen.blit(self.background, (0, 0))
         self.buttons = []
-        self.buttons = []
         self._draw_header(DESIGN_SIZE[0])
         self._draw_isometric_board(pygame.Rect(76, 135, 1000, 690))
         self._update_particles()
@@ -169,36 +170,56 @@ class StorybookSokobanApp(SokobanApp):
         scaled = pygame.transform.smoothscale(self.canvas, target)
         window.blit(scaled, offset)
 
+
+    def _load_art(self) -> dict[str, pygame.Surface]:
+        """Load versioned SVG sprites once using pygame-ce's SDL_image support."""
+        directory = Path(__file__).parent / "assets" / "storybook"
+        art: dict[str, pygame.Surface] = {}
+        for name in ("floor", "wall", "crate", "goal", "foliage", "lantern"):
+            try:
+                art[name] = pygame.image.load(str(directory / f"{name}.svg")).convert_alpha()
+            except (pygame.error, OSError):
+                pass  # The original Pygame polygons remain a supported fallback.
+        return art
+
+    def _art_sprite(self, name: str, width: int, height: int) -> pygame.Surface | None:
+        if name not in self.art:
+            return None
+        key = name, max(1, width), max(1, height)
+        if key not in self._art_cache:
+            self._art_cache[key] = pygame.transform.smoothscale(self.art[name], (key[1], key[2]))
+        return self._art_cache[key]
+
     def _make_background(self) -> pygame.Surface:
-        w, h = DESIGN_SIZE
+        width, height = DESIGN_SIZE
         surface = pygame.Surface(DESIGN_SIZE).convert()
-        for y in range(h):
-            t = y / h
-            color = (round(16 + 21*t), round(17 + 13*t), round(37 + 18*t))
-            pygame.draw.line(surface, color, (0, y), (w, y))
+        for y in range(height):
+            t = y / height
+            pygame.draw.line(surface, (round(11 + 17*t), round(14 + 12*t), round(31 + 24*t)), (0,y), (width,y))
         rng = random.Random(1204)
-        # Murky warehouse shadows, soft stone flecks and vegetation at the edges.
-        for _ in range(480):
-            x, y = rng.randrange(w), rng.randrange(h)
-            c = (34, 36, 69) if rng.random() < .55 else (49, 40, 70)
-            pygame.draw.circle(surface, c, (x, y), rng.randint(1, 3))
-        for cx, cy, radius in [(-15, 35, 115), (1150, 30, 138), (1400, 820, 180), (48, 820, 120)]:
-            for _ in range(46):
-                x = cx + rng.randint(-radius, radius)
-                y = cy + rng.randint(-radius, radius)
-                r = rng.randint(19, 44)
-                pygame.draw.ellipse(surface, rng.choice([(20, 46, 40), (22, 58, 39), (29, 70, 49), (16, 38, 39)]), (x-r,y-r,r*2,r*2))
-        for x, y in ((27, 186), (1403, 284)):
-            pygame.draw.line(surface, (79, 58, 69), (x, 0), (x, y), 8)
-            pygame.draw.circle(surface, (241, 170, 66), (x, y), 33)
-            pygame.draw.circle(surface, (255, 221, 110), (x, y), 20)
-            pygame.draw.rect(surface, (107, 75, 66), pygame.Rect(x-25,y-33,50,65), 5, border_radius=8)
-        # Crates and barrels outside the playable field lend it a diorama feel.
-        for cx, cy, s in ((60, 570, 68), (145, 912, 73), (1010, 918, 72)):
-            pygame.draw.rect(surface, (101, 55, 40), (cx,cy,s,s), border_radius=7)
-            pygame.draw.rect(surface, (192, 114, 58), (cx+6,cy+6,s-12,s-12), 5)
-            pygame.draw.line(surface, (230, 156, 80), (cx+10,cy+10), (cx+s-10,cy+s-10), 6)
-            pygame.draw.line(surface, (209, 130, 69), (cx+s-10,cy+10), (cx+10,cy+s-10), 6)
+        for _ in range(240):
+            x, y = rng.randrange(width), rng.randrange(height)
+            pygame.draw.circle(surface, (32,34,56), (x,y), rng.randint(1,2))
+        if "foliage" in self.art:
+            for x,y,size,mirror in ((-42,-39,260,False),(1025,-76,310,True),
+                                    (1280,-25,250,False),(-88,700,330,True),
+                                    (65,860,320,False),(1240,780,310,True),(1110,870,240,False)):
+                sprite = self._art_sprite("foliage", size, round(size*.75))
+                if mirror:
+                    sprite = pygame.transform.flip(sprite, True, False)
+                surface.blit(sprite, (x,y))
+        if "crate" in self.art:
+            for x,y,size in ((22,557,82),(150,874,93),(1017,850,110)):
+                sprite = self._art_sprite("crate", size, round(size*188/160))
+                surface.blit(sprite, (x,y))
+        if "lantern" in self.art:
+            for x,y,scale in ((-7,165,125),(1370,270,112)):
+                glow = pygame.Surface((320,320),pygame.SRCALPHA)
+                for radius,alpha in ((150,8),(100,13),(65,25),(32,32)):
+                    pygame.draw.circle(glow,(255,155,50,alpha),(160,160),radius)
+                surface.blit(glow,(x-110,y-103))
+                sprite = self._art_sprite("lantern",scale,round(scale*210/120))
+                surface.blit(sprite,(x,y-round(scale*.25)))
         return surface
 
     def _draw_header(self, width: int) -> None:
@@ -287,6 +308,10 @@ class StorybookSokobanApp(SokobanApp):
         hw, hh = tile_w//2, tile_h//2
         diamond = [(cx,cy-hh),(cx+hw,cy),(cx,cy+hh),(cx-hw,cy)]
         base = (57, 51, 77) if alternate else (49, 45, 70)
+        art = self._art_sprite("floor", tile_w, tile_h)
+        if art is not None:
+            self.screen.blit(art, art.get_rect(center=center))
+            return
         pygame.draw.polygon(self.screen,(25, 24, 47), [(px, py+5) for px,py in diamond])
         pygame.draw.polygon(self.screen, base, diamond)
         pygame.draw.polygon(self.screen,(94, 84, 120),diamond,2)
@@ -299,6 +324,10 @@ class StorybookSokobanApp(SokobanApp):
 
     def _draw_stone_block(self, ground: tuple[int,int], tw: int, th: int, height: int, x: int, y: int) -> None:
         cx, cy = ground
+        art = self._art_sprite("wall", tw, round(tw*176/160))
+        if art is not None:
+            self.screen.blit(art, (cx-tw//2, cy-round(tw*128/160)))
+            return
         hw, hh = tw//2, th//2
         ty = cy-height
         top=[(cx,ty-hh),(cx+hw,ty),(cx,ty+hh),(cx-hw,ty)]
@@ -314,6 +343,11 @@ class StorybookSokobanApp(SokobanApp):
 
     def _draw_crate(self, ground: tuple[int,int], tw: int, th: int) -> None:
         cx, cy = ground
+        aw = round(tw*.83)
+        art = self._art_sprite("crate", aw, round(aw*188/160))
+        if art is not None:
+            self.screen.blit(art, (cx-aw//2, cy-round(aw*148/160)))
+            return
         w, h = round(tw*.66), round(th*.90)
         hw, hh=w//2,h//2
         rise=round(th*1.27)
@@ -338,6 +372,10 @@ class StorybookSokobanApp(SokobanApp):
 
     def _draw_goal(self, center: tuple[int,int], tw: int, th: int) -> None:
         cx,cy=center
+        art = self._art_sprite("goal", tw, th)
+        if art is not None:
+            self.screen.blit(art, art.get_rect(center=center))
+            return
         self._glow((cx,cy),max(32,tw//2),(59,251,85),130)
         for i,c in ((0,(31,103,57)),(4,(86,246,76)),(10,(26,114,55))):
             r=max(8,tw//4-i)
@@ -351,7 +389,7 @@ class StorybookSokobanApp(SokobanApp):
         sprite=self._hero_cache.get(key)
         if sprite is None:
             source=self.hero_frames[direction_row][frame]
-            target_h=round(tile_h*2.65)
+            target_h=round(tile_h*3.1)
             w,h=source.get_size()
             sprite=pygame.transform.smoothscale(source,(max(1,round(target_h*w/h)),target_h))
             self._hero_cache[key]=sprite
