@@ -5,9 +5,10 @@ on:
   pull_request:
     paths:
       - 'sokoban.py'
-      - 'sokoban_flat.py'
+      - 'sokoban_theme.py'
       - 'sokoban_gui.py'
-      - 'assets/flat/**'
+      - 'assets/storybook/**'
+      - 'assets/hero_walk.png'
       - 'tests/**'
       - '.github/workflows/sokoban-ui.yml'
 jobs:
