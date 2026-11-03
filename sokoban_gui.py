@@ -1,38 +1,29 @@
-"""Graphical Pygame interface for Sokoban."""
+"""Isometric 2.5D Pygame interface for Sokoban."""
 
 from __future__ import annotations
 
 import argparse
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 import pygame
 
 from sokoban import Game, LEVELS, Position
 
 
-WIDTH, HEIGHT = 1160, 800
+WIDTH, HEIGHT = 1280, 860
 FPS = 60
 
-BG = (17, 25, 35)
-BG_SOFT = (23, 34, 46)
-PANEL = (29, 42, 55)
-PANEL_LIGHT = (38, 53, 68)
-PANEL_BORDER = (55, 72, 88)
-TEXT = (235, 240, 239)
-MUTED = (151, 169, 181)
-MINT = (112, 218, 179)
-MINT_DARK = (53, 140, 111)
-GOLD = (246, 190, 91)
-FLOOR = (222, 215, 194)
-FLOOR_ALT = (214, 206, 184)
-WALL = (79, 91, 99)
-WALL_TOP = (111, 124, 130)
-WOOD = (183, 111, 61)
-WOOD_LIGHT = (224, 157, 91)
-WOOD_DARK = (112, 63, 39)
-PLAYER = (74, 159, 194)
-PLAYER_DARK = (38, 103, 138)
+BG = (12, 18, 32)
+PANEL = (22, 31, 52)
+PANEL_HI = (31, 43, 69)
+PANEL_EDGE = (69, 82, 125)
+TEXT = (239, 241, 255)
+MUTED = (155, 168, 203)
+GOLD = (255, 190, 75)
+MINT = (93, 239, 157)
+MINT_DARK = (33, 153, 91)
 
 
 @dataclass
@@ -44,25 +35,61 @@ class Button:
     primary: bool = False
 
 
+@dataclass
+class MoveAnimation:
+    start: Position
+    end: Position
+    direction_row: int
+    started_at: int
+    box_start: Position | None = None
+    box_end: Position | None = None
+    duration: int = 210
+
+
 class SokobanApp:
     def __init__(self, start_level: int = 0) -> None:
         pygame.init()
-        pygame.display.set_caption("Sokoban — Warehouse Puzzles")
+        pygame.display.set_caption("Sokoban — The Lost Warehouse")
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
         self.clock = pygame.time.Clock()
         self.title_font = pygame.font.SysFont("dejavusans", 31, bold=True)
-        self.heading_font = pygame.font.SysFont("dejavusans", 18, bold=True)
+        self.heading_font = pygame.font.SysFont("dejavusans", 19, bold=True)
         self.body_font = pygame.font.SysFont("dejavusans", 15)
         self.small_font = pygame.font.SysFont("dejavusans", 12)
-        self.number_font = pygame.font.SysFont("dejavusans", 27, bold=True)
+        self.number_font = pygame.font.SysFont("dejavusans", 28, bold=True)
+        self.hero_sheet = self._load_hero_sheet()
+        self.hero_frames = self._slice_hero_sheet()
         self.game = Game(level_index=start_level)
         self.buttons: list[Button] = []
         self.popup_button: Button | None = None
         self.running = True
-        self.animation: tuple[Position, Position, Position | None, Position | None, int] | None = None
+        self.animation: MoveAnimation | None = None
+        self.facing_row = 0
         self.toast = ""
         self.toast_until = 0
+        self.particles: list[tuple[float, float, float, float, int]] = []
+        self.particle_origin = (0, 0)
         pygame.key.set_repeat(175, 105)
+
+    def _load_hero_sheet(self) -> pygame.Surface:
+        asset = Path(__file__).parent / "assets" / "hero_walk.png"
+        try:
+            return pygame.image.load(str(asset)).convert_alpha()
+        except (pygame.error, FileNotFoundError) as exc:
+            raise RuntimeError(
+                f"Could not load character spritesheet: {asset}. "
+                "Make sure the assets directory is included in the project."
+            ) from exc
+
+    def _slice_hero_sheet(self) -> list[list[pygame.Surface]]:
+        frames: list[list[pygame.Surface]] = []
+        for row in range(4):
+            direction: list[pygame.Surface] = []
+            for col in range(4):
+                frame = pygame.Rect(col * 96, row * 144, 96, 144)
+                direction.append(self.hero_sheet.subsurface(frame).copy())
+            frames.append(direction)
+        return frames
 
     def run(self) -> None:
         while self.running:
@@ -79,82 +106,124 @@ class SokobanApp:
             elif event.type == pygame.VIDEORESIZE:
                 self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
             elif event.type == pygame.KEYDOWN:
-                # Use event.unicode as well as key constants so WASD works
-                # with both Latin and Russian keyboard layouts.
-                char = event.unicode.lower()
-                if event.key == pygame.K_ESCAPE:
-                    self.running = False
-                elif event.key == pygame.K_UP or char in ("w", "ц"):
-                    self._move(0, -1)
-                elif event.key == pygame.K_DOWN or char in ("s", "ы"):
-                    self._move(0, 1)
-                elif event.key == pygame.K_LEFT or char in ("a", "ф"):
-                    self._move(-1, 0)
-                elif event.key == pygame.K_RIGHT or char in ("d", "в"):
-                    self._move(1, 0)
-                elif event.key == pygame.K_BACKSPACE or char in ("z", "я", "u", "г"):
-                    self._undo()
-                elif char in ("r", "к"):
-                    self._restart()
-                elif event.key == pygame.K_n or char in ("n", "т"):
-                    self._next_level()
+                self._handle_key(event)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_click(event.pos)
+
+    def _handle_key(self, event: pygame.event.Event) -> None:
+        char = event.unicode.lower()
+        if event.key == pygame.K_ESCAPE:
+            self.running = False
+        elif event.key == pygame.K_UP or char in ("w", "ц"):
+            self._move(0, -1)
+        elif event.key == pygame.K_DOWN or char in ("s", "ы"):
+            self._move(0, 1)
+        elif event.key == pygame.K_LEFT or char in ("a", "ф"):
+            self._move(-1, 0)
+        elif event.key == pygame.K_RIGHT or char in ("d", "в"):
+            self._move(1, 0)
+        elif event.key == pygame.K_BACKSPACE or char in ("z", "я", "u", "г"):
+            self._undo()
+        elif event.key == pygame.K_r or char == "к":
+            self._restart()
+        elif event.key == pygame.K_n or char in ("n", "т"):
+            self._next_level()
 
     def _move(self, dx: int, dy: int) -> None:
         if self.game.is_won:
             return
         old_player = self.game.player
         old_boxes = set(self.game.boxes)
-        if self.game.move(dx, dy):
-            pushed_from = next(iter(old_boxes - self.game.boxes), None)
-            pushed_to = next(iter(self.game.boxes - old_boxes), None)
-            self.animation = (old_player, self.game.player, pushed_from, pushed_to, pygame.time.get_ticks())
-        else:
+        if not self.game.move(dx, dy):
             self._show_toast("That way is blocked")
+            return
+
+        new_boxes = set(self.game.boxes)
+        box_start = next(iter(old_boxes - new_boxes), None)
+        box_end = next(iter(new_boxes - old_boxes), None)
+        direction_row = self._direction_row(dx, dy)
+        self.facing_row = direction_row
+        self.animation = MoveAnimation(
+            old_player,
+            self.game.player,
+            direction_row,
+            pygame.time.get_ticks(),
+            box_start,
+            box_end,
+        )
+        if self.game.is_won:
+            self._spawn_win_particles()
+
+    @staticmethod
+    def _direction_row(dx: int, dy: int) -> int:
+        # Sprite-sheet rows: front, left, right, back.
+        if dy > 0:
+            return 0
+        if dx < 0:
+            return 1
+        if dx > 0:
+            return 2
+        return 3
 
     def _undo(self) -> None:
         if self.game.undo():
             self.animation = None
-            self._show_toast("Last move undone")
+            self._show_toast("Move undone")
         else:
             self._show_toast("Nothing to undo")
 
     def _restart(self) -> None:
         self.game.restart()
         self.animation = None
+        self.particles.clear()
         self._show_toast("Level restarted")
 
     def _next_level(self) -> None:
         if not self.game.is_won:
             self._show_toast("Complete the level first")
         elif not self.game.next_level():
-            self._show_toast("All levels completed!")
+            self._show_toast("You solved every puzzle!")
         else:
             self.animation = None
+            self.particles.clear()
+            self.facing_row = 0
             self._show_toast(f"Level {self.game.level_index + 1}: {self.game.level.name}")
 
     def _select_level(self, index: int) -> None:
         if 0 <= index < len(self.game.levels):
             self.game = Game(levels=self.game.levels, level_index=index)
             self.animation = None
+            self.particles.clear()
             self._show_toast(f"Level {index + 1} selected")
 
     def _show_toast(self, message: str) -> None:
         self.toast = message
         self.toast_until = pygame.time.get_ticks() + 1500
 
+    def _board_area(self) -> pygame.Rect:
+        width, height = self.screen.get_size()
+        margin, top, gap = 28, 108, 20
+        side_width = min(310, max(278, int(width * 0.265)))
+        board_width = width - margin * 2 - gap - side_width
+        panel_height = max(520, height - top - 26)
+        board_rect = pygame.Rect(margin, top, board_width, panel_height)
+        return pygame.Rect(board_rect.x + 14, board_rect.y + 78, board_rect.width - 28, board_rect.height - 92)
+
+    def _spawn_win_particles(self) -> None:
+        now = pygame.time.get_ticks()
+        self.particle_origin = self._board_area().center
+        self.particles = []
+        for index in range(42):
+            angle = math.tau * index / 42
+            speed = 35 + (index % 6) * 11
+            self.particles.append((0.0, 0.0, math.cos(angle) * speed, math.sin(angle) * speed, now))
+
     def _handle_click(self, pos: tuple[int, int]) -> None:
-        if (
-            self.popup_button is not None
-            and self.popup_button.enabled
-            and self.popup_button.rect.collidepoint(pos)
-        ):
+        if self.popup_button and self.popup_button.enabled and self.popup_button.rect.collidepoint(pos):
             self._next_level()
             return
-
         for button in self.buttons:
-            if button.rect.collidepoint(pos) and button.enabled:
+            if button.enabled and button.rect.collidepoint(pos):
                 if button.action == "undo":
                     self._undo()
                 elif button.action == "restart":
@@ -166,18 +235,17 @@ class SokobanApp:
                 return
 
     def _draw(self) -> None:
-        self.popup_button = None
         width, height = self.screen.get_size()
         self.screen.fill(BG)
         self._draw_background(width, height)
         self._draw_header(width)
 
-        margin = 30
-        top = 112
-        gap = 22
-        side_width = min(310, max(270, int(width * 0.28)))
+        margin = 28
+        top = 108
+        gap = 20
+        side_width = min(310, max(278, int(width * 0.265)))
         board_width = width - margin * 2 - gap - side_width
-        panel_height = max(500, height - top - 28)
+        panel_height = max(520, height - top - 26)
         board_rect = pygame.Rect(margin, top, board_width, panel_height)
         side_rect = pygame.Rect(board_rect.right + gap, top, side_width, panel_height)
 
@@ -186,253 +254,364 @@ class SokobanApp:
         self._draw_toast(width, height)
 
     def _draw_background(self, width: int, height: int) -> None:
-        for x in range(0, width, 48):
-            pygame.draw.line(self.screen, (21, 31, 42), (x, 0), (x, height), 1)
-        for y in range(0, height, 48):
-            pygame.draw.line(self.screen, (21, 31, 42), (0, y), (width, y), 1)
-        pygame.draw.circle(self.screen, (23, 45, 54), (width - 80, 70), 170, 1)
-        pygame.draw.circle(self.screen, (23, 45, 54), (width - 80, 70), 205, 1)
+        for x in range(0, width, 54):
+            pygame.draw.line(self.screen, (17, 25, 43), (x, 0), (x, height), 1)
+        for y in range(0, height, 54):
+            pygame.draw.line(self.screen, (17, 25, 43), (0, y), (width, y), 1)
+        self._glow((width - 70, 50), 210, (57, 74, 160), 32)
+        self._glow((65, height - 40), 190, (161, 88, 43), 26)
+        self._text("✦", self.heading_font, (92, 112, 190), (width - 240, 124))
+        self._text("✧", self.body_font, (133, 110, 177), (width - 130, height - 120))
 
     def _draw_header(self, width: int) -> None:
-        self._text("SOKOBAN", self.title_font, TEXT, (32, 24))
-        self._text("WAREHOUSE PUZZLES", self.small_font, MINT, (34, 65))
-        tagline = "A little planning goes a long way."
-        tag_surface = self.body_font.render(tagline, True, MUTED)
-        self.screen.blit(tag_surface, (width - tag_surface.get_width() - 34, 42))
-        pygame.draw.line(self.screen, PANEL_BORDER, (30, 94), (width - 30, 94), 1)
+        self._text("SOKOBAN", self.title_font, TEXT, (30, 18))
+        self._text("THE LOST WAREHOUSE", self.small_font, (119, 224, 189), (34, 58))
+        tagline = "PUSH  ·  PLAN  ·  SOLVE"
+        tag = self.body_font.render(tagline, True, MUTED)
+        self.screen.blit(tag, (width - tag.get_width() - 32, 38))
+        pygame.draw.line(self.screen, (49, 62, 96), (28, 88), (width - 28, 88), 1)
 
     def _draw_board_panel(self, rect: pygame.Rect) -> None:
         self._panel(rect)
-        title = f"LEVEL {self.game.level_index + 1:02d}"
-        self._text(title, self.small_font, MINT, (rect.x + 25, rect.y + 20))
-        self._text(self.game.level.name, self.heading_font, TEXT, (rect.x + 25, rect.y + 43))
-        board_area = pygame.Rect(rect.x + 20, rect.y + 92, rect.width - 40, rect.height - 118)
-        self._draw_board(board_area)
+        self._text(f"LEVEL {self.game.level_index + 1:02d}", self.small_font, (117, 229, 188), (rect.x + 24, rect.y + 18))
+        self._text(self.game.level.name, self.heading_font, TEXT, (rect.x + 24, rect.y + 42))
+        board_area = pygame.Rect(rect.x + 14, rect.y + 78, rect.width - 28, rect.height - 92)
+        self._draw_isometric_board(board_area)
+        self._update_particles()
         if self.game.is_won:
             self._draw_win_overlay(board_area)
 
-    def _draw_board(self, area: pygame.Rect) -> None:
+    def _draw_isometric_board(self, area: pygame.Rect) -> None:
         rows = self.game.level.rows
-        cols = len(rows[0])
-        row_count = len(rows)
-        tile = int(min(66, (area.width - 28) / cols, (area.height - 28) / row_count))
-        tile = max(28, tile)
-        board_w, board_h = cols * tile, row_count * tile
-        origin_x = area.centerx - board_w // 2
-        origin_y = area.centery - board_h // 2
+        cols, row_count = len(rows[0]), len(rows)
+        tile_w = min(78, int((area.width - 65) * 2 / (cols + row_count)))
+        tile_w = max(58, tile_w)
+        tile_h = int(tile_w * 0.48)
+        wall_h = int(tile_h * 0.78)
 
-        shadow_rect = pygame.Rect(origin_x - 12, origin_y - 12, board_w + 24, board_h + 24)
-        pygame.draw.rect(self.screen, (18, 27, 35), shadow_rect, border_radius=18)
-        pygame.draw.rect(self.screen, (57, 69, 74), shadow_rect, width=1, border_radius=18)
+        origin_x = area.centerx - (cols - row_count) * tile_w / 4
+        origin_y = area.centery - (cols + row_count - 2) * tile_h / 4
+
+        def project(pos: tuple[float, float]) -> tuple[int, int]:
+            gx, gy = pos
+            return (
+                round(origin_x + (gx - gy) * tile_w / 2),
+                round(origin_y + (gx + gy) * tile_h / 2),
+            )
+
+        for y in range(row_count):
+            for x in range(cols):
+                center = project((x, y))
+                self._draw_floor_tile(center, tile_w, tile_h, (x + y) % 2 == 0)
+                if (x, y) in self.game.goals:
+                    self._draw_goal(center, tile_w, tile_h)
 
         now = pygame.time.get_ticks()
         animation = self.animation
         progress = 1.0
         if animation:
-            progress = min(1.0, (now - animation[4]) / 115)
-            if progress >= 1:
+            progress = min(1.0, (now - animation.started_at) / animation.duration)
+            if progress >= 1.0:
                 self.animation = None
 
-        def cell_center(position: Position) -> tuple[int, int]:
-            return (origin_x + position[0] * tile + tile // 2, origin_y + position[1] * tile + tile // 2)
+        animated_box_pos: tuple[float, float] | None = None
+        if animation and animation.box_start and animation.box_end and progress < 1:
+            eased = self._ease(progress)
+            animated_box_pos = (
+                animation.box_start[0] + (animation.box_end[0] - animation.box_start[0]) * eased,
+                animation.box_start[1] + (animation.box_end[1] - animation.box_start[1]) * eased,
+            )
 
+        hero_pos: tuple[float, float] = self.game.player
+        hero_row = self.facing_row
+        moving = bool(animation and progress < 1)
+        if animation and moving:
+            eased = self._ease(progress)
+            hero_pos = (
+                animation.start[0] + (animation.end[0] - animation.start[0]) * eased,
+                animation.start[1] + (animation.end[1] - animation.start[1]) * eased,
+            )
+            hero_row = animation.direction_row
+
+        drawables: list[tuple[float, int, float, float, str, Position | None]] = []
         for y in range(row_count):
             for x in range(cols):
                 pos = (x, y)
-                cell = pygame.Rect(origin_x + x * tile + 2, origin_y + y * tile + 2, tile - 4, tile - 4)
                 if pos in self.game.walls:
-                    self._draw_wall(cell)
-                else:
-                    self._draw_floor(cell, (x + y) % 2 == 0)
-                    if pos in self.game.goals:
-                        self._draw_goal(cell.center, tile)
+                    drawables.append((x + y, 0, x, y, "wall", pos))
+                elif pos in self.game.boxes and not (animation and pos == animation.box_end and animated_box_pos):
+                    drawables.append((x + y, 1, x, y, "box", pos))
 
-        boxes = set(self.game.boxes)
-        player_position = self.game.player
-        player_position_float = (float(player_position[0]), float(player_position[1]))
-        moving_box_from = moving_box_to = None
-        if animation and progress < 1:
-            from_player, to_player, moving_box_from, moving_box_to, _ = animation
-            player_position_float = (
-                from_player[0] + (to_player[0] - from_player[0]) * progress,
-                from_player[1] + (to_player[1] - from_player[1]) * progress,
-            )
+        if animation and animation.box_start and animated_box_pos and progress < 1:
+            bx, by = animated_box_pos
+            drawables.append((bx + by, 1, bx, by, "moving_box", None))
+        drawables.append((hero_pos[0] + hero_pos[1], 2, hero_pos[0], hero_pos[1], "hero", None))
 
-        for box in boxes:
-            if animation and box == moving_box_to and progress < 1 and moving_box_from is not None:
-                bx = moving_box_from[0] + (moving_box_to[0] - moving_box_from[0]) * progress
-                by = moving_box_from[1] + (moving_box_to[1] - moving_box_from[1]) * progress
-                box_center = (origin_x + bx * tile + tile / 2, origin_y + by * tile + tile / 2)
-                self._draw_box(box_center, tile)
-            else:
-                self._draw_box(cell_center(box), tile)
+        for _, _, gx, gy, kind, pos in sorted(drawables, key=lambda item: (item[0], item[1])):
+            if kind == "wall" and pos is not None:
+                self._draw_stone_block(project(pos), tile_w, tile_h, wall_h, pos[0], pos[1])
+            elif kind == "box" and pos is not None:
+                self._draw_crate(project(pos), tile_w, tile_h)
+            elif kind == "moving_box":
+                self._draw_crate(project((gx, gy)), tile_w, tile_h)
+            elif kind == "hero":
+                self._draw_hero(project((gx, gy)), hero_row, moving, now, tile_h)
 
-        self._draw_player(
-            (origin_x + player_position_float[0] * tile + tile / 2,
-             origin_y + player_position_float[1] * tile + tile / 2),
-            tile,
+    @staticmethod
+    def _ease(value: float) -> float:
+        return value * value * (3 - 2 * value)
+
+    def _draw_floor_tile(self, center: tuple[int, int], tile_w: int, tile_h: int, alternate: bool) -> None:
+        cx, cy = center
+        hw, hh = tile_w // 2, tile_h // 2
+        points = [(cx, cy - hh), (cx + hw, cy), (cx, cy + hh), (cx - hw, cy)]
+        color = (50, 59, 82) if alternate else (43, 52, 74)
+        pygame.draw.polygon(self.screen, (23, 30, 50), [(x, y + 4) for x, y in points])
+        pygame.draw.polygon(self.screen, color, points)
+        pygame.draw.polygon(self.screen, (76, 88, 118), points, width=1)
+        pygame.draw.line(self.screen, (69, 81, 111), (cx - hw + 7, cy), (cx, cy - hh + 4), 1)
+
+    def _draw_stone_block(self, ground: tuple[int, int], tile_w: int, tile_h: int, wall_h: int, x: int, y: int) -> None:
+        cx, cy = ground
+        hw, hh = tile_w // 2, tile_h // 2
+        top_y = cy - wall_h
+        top = [(cx, top_y - hh), (cx + hw, top_y), (cx, top_y + hh), (cx - hw, top_y)]
+        left_face = [top[3], top[2], (cx, cy + hh), (cx - hw, cy)]
+        right_face = [top[2], top[1], (cx + hw, cy), (cx, cy + hh)]
+        pygame.draw.polygon(self.screen, (57, 64, 91), left_face)
+        pygame.draw.polygon(self.screen, (43, 49, 74), right_face)
+        pygame.draw.polygon(self.screen, (106, 116, 151), top)
+        pygame.draw.polygon(self.screen, (138, 146, 177), top, width=1)
+        seam = (cx + (x % 2) * 7 - 4, top_y + 1)
+        pygame.draw.line(self.screen, (83, 92, 126), (seam[0] - 8, seam[1] - 2), (seam[0] + 8, seam[1] + 2), 2)
+        pygame.draw.line(self.screen, (153, 160, 185), (cx - hw + 8, top_y - 3), (cx - 4, top_y - hh + 4), 2)
+
+    def _draw_goal(self, center: tuple[int, int], tile_w: int, tile_h: int) -> None:
+        cx, cy = center
+        self._glow((cx, cy), max(28, tile_w // 2), (67, 235, 149), 48)
+        radius = max(8, int(tile_w * 0.17))
+        pygame.draw.ellipse(self.screen, (28, 108, 83), (cx - radius - 4, cy - radius // 2 - 3, (radius + 4) * 2, radius + 7))
+        pygame.draw.ellipse(self.screen, (70, 248, 157), (cx - radius, cy - radius // 2, radius * 2, radius), width=3)
+        pygame.draw.ellipse(self.screen, (154, 255, 188), (cx - radius // 2, cy - radius // 4, radius, max(4, radius // 2)), width=2)
+        pygame.draw.circle(self.screen, (205, 255, 207), (cx, cy), 2)
+
+    def _draw_crate(self, ground: tuple[int, int], tile_w: int, tile_h: int) -> None:
+        cx, cy = ground
+        size_w = int(tile_w * 0.52)
+        size_h = int(tile_h * 0.72)
+        lift = int(tile_h * 0.92)
+        top_cy = cy - lift
+        hw, hh = size_w // 2, size_h // 2
+        top = [(cx, top_cy - hh), (cx + hw, top_cy), (cx, top_cy + hh), (cx - hw, top_cy)]
+        bottom_left = (cx - hw, top_cy + lift)
+        bottom_front = (cx, top_cy + hh + lift)
+        bottom_right = (cx + hw, top_cy + lift)
+        side_left = [top[3], top[2], bottom_front, bottom_left]
+        side_right = [top[2], top[1], bottom_right, bottom_front]
+        pygame.draw.ellipse(self.screen, (13, 17, 29), (cx - hw, cy - 5, size_w, max(12, tile_h // 2)))
+        pygame.draw.polygon(self.screen, (116, 64, 42), side_left)
+        pygame.draw.polygon(self.screen, (83, 48, 39), side_right)
+        pygame.draw.polygon(self.screen, (199, 127, 71), top)
+        pygame.draw.polygon(self.screen, (242, 178, 112), top, width=2)
+        pygame.draw.line(self.screen, (242, 178, 112), top[3], top[1], 3)
+        pygame.draw.line(self.screen, (145, 79, 46), top[0], top[2], 3)
+        pygame.draw.line(self.screen, (226, 157, 93), side_left[0], bottom_front, 2)
+        pygame.draw.line(self.screen, (226, 157, 93), side_right[1], bottom_front, 2)
+        pygame.draw.polygon(self.screen, (101, 58, 39), [
+            (cx - hw + 7, top_cy + lift // 2),
+            (cx, top_cy + hh + lift // 2),
+            (cx, bottom_front[1] - 5),
+            (cx - hw + 7, bottom_left[1] - 5),
+        ], width=2)
+
+    def _draw_hero(self, ground: tuple[int, int], direction_row: int, moving: bool, now: int, tile_h: int) -> None:
+        frame_index = (now // 68) % 4 if moving else 0
+        sprite = self.hero_frames[direction_row][frame_index]
+        target_h = int(tile_h * 3.45)
+        target_w = int(target_h * 96 / 144)
+        sprite = pygame.transform.smoothscale(sprite, (target_w, target_h))
+        shadow_y = ground[1] + int(tile_h * 0.16)
+        pygame.draw.ellipse(
+            self.screen,
+            (12, 16, 29),
+            (ground[0] - target_w // 4, shadow_y - 5, target_w // 2, max(9, tile_h // 2)),
         )
-
-    def _draw_floor(self, rect: pygame.Rect, alternate: bool) -> None:
-        pygame.draw.rect(self.screen, FLOOR_ALT if alternate else FLOOR, rect, border_radius=5)
-        pygame.draw.line(self.screen, (236, 230, 211), (rect.x + 7, rect.y + 5), (rect.right - 7, rect.y + 5), 1)
-
-    def _draw_wall(self, rect: pygame.Rect) -> None:
-        shadow = rect.move(0, 3)
-        pygame.draw.rect(self.screen, (40, 50, 56), shadow, border_radius=6)
-        pygame.draw.rect(self.screen, WALL, rect, border_radius=6)
-        pygame.draw.rect(self.screen, WALL_TOP, (rect.x + 3, rect.y + 3, rect.width - 6, 7), border_radius=3)
-        pygame.draw.line(self.screen, (62, 73, 80), (rect.x + 7, rect.bottom - 7), (rect.right - 7, rect.bottom - 7), 2)
-        if rect.width > 40:
-            pygame.draw.line(self.screen, (94, 105, 111), (rect.centerx, rect.y + 15), (rect.centerx, rect.bottom - 8), 1)
-
-    def _draw_goal(self, center: tuple[int, int], tile: int) -> None:
-        radius = max(7, int(tile * 0.21))
-        pygame.draw.circle(self.screen, (191, 144, 71), center, radius + 3, 2)
-        pygame.draw.circle(self.screen, GOLD, center, radius, 2)
-        pygame.draw.circle(self.screen, (246, 190, 91), center, max(2, radius // 4))
-
-    def _draw_box(self, center: tuple[float, float], tile: int) -> None:
-        size = int(tile * 0.68)
-        rect = pygame.Rect(0, 0, size, size)
-        rect.center = (round(center[0]), round(center[1]))
-        pygame.draw.rect(self.screen, (82, 48, 34), rect.move(0, 4), border_radius=7)
-        pygame.draw.rect(self.screen, WOOD, rect, border_radius=7)
-        pygame.draw.rect(self.screen, WOOD_LIGHT, (rect.x + 4, rect.y + 4, rect.width - 8, 5), border_radius=2)
-        pygame.draw.rect(self.screen, WOOD_DARK, rect.inflate(-12, -12), width=2, border_radius=4)
-        pygame.draw.line(self.screen, WOOD_LIGHT, (rect.x + 9, rect.y + 11), (rect.right - 9, rect.bottom - 11), 2)
-        pygame.draw.line(self.screen, WOOD_LIGHT, (rect.right - 9, rect.y + 11), (rect.x + 9, rect.bottom - 11), 2)
-
-    def _draw_player(self, center: tuple[float, float], tile: int) -> None:
-        cx, cy = int(center[0]), int(center[1])
-        radius = max(10, int(tile * 0.30))
-        pygame.draw.ellipse(self.screen, (41, 55, 61), (cx - radius, cy + radius // 2, radius * 2, radius // 2))
-        pygame.draw.circle(self.screen, PLAYER_DARK, (cx, cy + 2), radius)
-        pygame.draw.circle(self.screen, PLAYER, (cx, cy - 1), radius - 3)
-        head_radius = max(5, int(radius * 0.48))
-        pygame.draw.circle(self.screen, (242, 211, 171), (cx, cy - radius // 5), head_radius)
-        eye_y = cy - radius // 5
-        pygame.draw.circle(self.screen, (57, 62, 61), (cx - head_radius // 3, eye_y), 1)
-        pygame.draw.circle(self.screen, (57, 62, 61), (cx + head_radius // 3, eye_y), 1)
-        pygame.draw.arc(self.screen, (57, 62, 61), (cx - 4, eye_y, 8, 6), math.pi * 1.05, math.pi * 1.95, 1)
+        idle_bob = 0 if moving else round(math.sin(now / 390) * 2)
+        rect = sprite.get_rect(midbottom=(ground[0], shadow_y + 6 + idle_bob))
+        self.screen.blit(sprite, rect)
 
     def _draw_win_overlay(self, area: pygame.Rect) -> None:
         overlay = pygame.Surface(area.size, pygame.SRCALPHA)
-        overlay.fill((14, 25, 31, 175))
+        overlay.fill((7, 12, 27, 190))
         self.screen.blit(overlay, area.topleft)
-
-        has_next_level = self.game.level_index < len(self.game.levels) - 1
-        card_height = 190 if has_next_level else 150
-        card = pygame.Rect(0, 0, min(390, area.width - 36), card_height)
+        has_next = self.game.level_index < len(self.game.levels) - 1
+        card_w = min(430, area.width - 38)
+        card_h = 240 if has_next else 205
+        card = pygame.Rect(0, 0, card_w, card_h)
         card.center = area.center
-        pygame.draw.rect(self.screen, (31, 51, 59), card, border_radius=18)
-        pygame.draw.rect(self.screen, (93, 151, 127), card, width=1, border_radius=18)
-
-        self._center_text("LEVEL COMPLETE", self.heading_font, MINT, (card.centerx, card.y + 37))
-        if has_next_level:
-            self._center_text("All crates are in place.", self.body_font, TEXT, (card.centerx, card.y + 73))
-            next_rect = pygame.Rect(card.x + 58, card.y + 112, card.width - 116, 42)
-            self._draw_button(next_rect, "Next Level   →", True, False, primary=True)
-            self.popup_button = Button(next_rect, "Next Level", "next", primary=True)
+        pygame.draw.rect(self.screen, (13, 22, 45), card.move(0, 8), border_radius=23)
+        pygame.draw.rect(self.screen, (26, 38, 69), card, border_radius=23)
+        pygame.draw.rect(self.screen, (109, 130, 196), card, width=2, border_radius=23)
+        self._draw_star((card.centerx - 90, card.y + 22), 19, GOLD)
+        self._draw_star((card.centerx, card.y + 9), 27, (255, 215, 104))
+        self._draw_star((card.centerx + 90, card.y + 22), 19, GOLD)
+        self._center_text("LEVEL COMPLETE!", self.heading_font, (255, 216, 126), (card.centerx, card.y + 75))
+        if has_next:
+            self._center_text("All crates are in place.", self.body_font, TEXT, (card.centerx, card.y + 108))
+            self._center_text(f"Solved in {self.game.moves} moves", self.small_font, MUTED, (card.centerx, card.y + 133))
+            button_rect = pygame.Rect(card.x + 64, card.y + 160, card.width - 128, 52)
+            self._draw_button(button_rect, "▶   NEXT LEVEL", True, False, primary=True)
+            self.popup_button = Button(button_rect, "Next level", "next", primary=True)
         else:
-            self._center_text("You solved every puzzle!", self.body_font, TEXT, (card.centerx, card.y + 75))
-            self._center_text("Choose a level to play again", self.small_font, MUTED, (card.centerx, card.y + 105))
+            self._center_text("You solved every puzzle!", self.body_font, TEXT, (card.centerx, card.y + 112))
+            self._center_text("Pick any level to play again", self.small_font, MUTED, (card.centerx, card.y + 141))
+
+    def _draw_star(self, center: tuple[int, int], radius: int, color: tuple[int, int, int]) -> None:
+        points = []
+        for i in range(10):
+            angle = -math.pi / 2 + i * math.pi / 5
+            r = radius if i % 2 == 0 else radius * 0.46
+            points.append((round(center[0] + math.cos(angle) * r), round(center[1] + math.sin(angle) * r)))
+        pygame.draw.polygon(self.screen, color, points)
+        pygame.draw.polygon(self.screen, (255, 239, 178), points, width=2)
 
     def _draw_sidebar(self, rect: pygame.Rect) -> None:
         self._panel(rect)
-        pad = 22
+        pad = 20
         x = rect.x + pad
         y = rect.y + 22
-        self._text("YOUR SESSION", self.small_font, MINT, (x, y))
-        y += 30
+        self._text("YOUR ADVENTURE", self.small_font, (128, 231, 195), (x, y))
+        y += 31
 
-        stat_w = (rect.width - pad * 2 - 10) // 2
+        stat_gap = 9
+        stat_w = (rect.width - pad * 2 - stat_gap) // 2
         self._stat_card(pygame.Rect(x, y, stat_w, 82), "MOVES", str(self.game.moves))
-        self._stat_card(pygame.Rect(x + stat_w + 10, y, stat_w, 82), "CRATES", f"{self.game.boxes_on_goals}/{len(self.game.goals)}")
-        y += 103
+        self._stat_card(pygame.Rect(x + stat_w + stat_gap, y, stat_w, 82), "CRATES", f"{self.game.boxes_on_goals}/{len(self.game.goals)}")
+        y += 101
 
-        self._text("LEVEL SELECT", self.small_font, MUTED, (x, y))
+        self._text("CHOOSE A LEVEL", self.small_font, MUTED, (x, y))
         y += 24
         self.buttons = []
-        card_gap = 8
-        card_h = 52
         for index, level in enumerate(self.game.levels):
-            card = pygame.Rect(x, y, rect.width - pad * 2, card_h)
+            card = pygame.Rect(x, y, rect.width - pad * 2, 46)
             active = index == self.game.level_index
-            pygame.draw.rect(self.screen, (41, 67, 70) if active else BG_SOFT, card, border_radius=9)
-            pygame.draw.rect(self.screen, MINT_DARK if active else PANEL_BORDER, card, width=1, border_radius=9)
-            self._text(f"{index + 1:02d}", self.heading_font, MINT if active else MUTED, (card.x + 12, card.y + 14))
-            name = self.body_font.render(level.name, True, TEXT if active else MUTED)
-            self.screen.blit(name, (card.x + 53, card.y + 17))
+            pygame.draw.rect(self.screen, (36, 74, 77) if active else (18, 27, 48), card, border_radius=10)
+            pygame.draw.rect(self.screen, (70, 177, 145) if active else (55, 70, 105), card, width=1, border_radius=10)
+            self._text(f"{index + 1:02d}", self.body_font, (128, 235, 190) if active else MUTED, (card.x + 13, card.y + 14))
+            self._text(level.name, self.body_font, TEXT if active else MUTED, (card.x + 54, card.y + 14))
             self.buttons.append(Button(card, level.name, f"level:{index}"))
-            y += card_h + card_gap
+            y += 53
 
-        y += 7
-        self._text("ACTIONS", self.small_font, MUTED, (x, y))
+        y += 6
+        self._text("QUICK ACTIONS", self.small_font, MUTED, (x, y))
         y += 22
         button_gap = 8
-        button_h = 39
         half = (rect.width - pad * 2 - button_gap) // 2
-        undo_rect = pygame.Rect(x, y, half, button_h)
-        restart_rect = pygame.Rect(x + half + button_gap, y, half, button_h)
-        self._draw_button(undo_rect, "↶  Undo", False, True)
-        self._draw_button(restart_rect, "↻  Restart", False, True)
+        undo_rect = pygame.Rect(x, y, half, 42)
+        restart_rect = pygame.Rect(x + half + button_gap, y, half, 42)
+        self._draw_button(undo_rect, "↶  UNDO", True, True)
+        self._draw_button(restart_rect, "⟳  RESTART", True, True)
         self.buttons.extend([Button(undo_rect, "Undo", "undo"), Button(restart_rect, "Restart", "restart")])
-        y += button_h + 8
-
-        next_rect = pygame.Rect(x, y, rect.width - pad * 2, 42)
-        can_advance = self.game.is_won and self.game.level_index < len(self.game.levels) - 1
-        self._draw_button(next_rect, "Next level   →", can_advance, False, primary=True)
-        self.buttons.append(Button(next_rect, "Next level", "next", enabled=can_advance, primary=True))
         y += 58
+
+        next_rect = pygame.Rect(x, y, rect.width - pad * 2, 44)
+        can_advance = self.game.is_won and self.game.level_index < len(self.game.levels) - 1
+        self._draw_button(next_rect, "NEXT LEVEL   →", can_advance, False, primary=True)
+        self.buttons.append(Button(next_rect, "Next Level", "next", enabled=can_advance, primary=True))
+        y += 63
 
         self._text("CONTROLS", self.small_font, MUTED, (x, y))
         y += 22
         self._key_hint(x, y, "↑ ↓ ← →", "Move")
-        self._key_hint(x, y + 25, "W A S D", "Move")
-        self._key_hint(x, y + 50, "Z / BACKSPACE", "Undo")
-        self._key_hint(x, y + 75, "R", "Restart")
-        self._key_hint(x, y + 100, "N", "Next level")
+        self._key_hint(x, y + 22, "W A S D", "Move")
+        self._key_hint(x, y + 44, "Z / BACKSPACE", "Undo")
+        self._key_hint(x, y + 66, "R", "Restart")
+        self._key_hint(x, y + 88, "N", "Next level")
+
+        progress_rect = pygame.Rect(x, rect.bottom - 49, rect.width - pad * 2, 7)
+        pygame.draw.rect(self.screen, (43, 53, 83), progress_rect, border_radius=4)
+        progress = (self.game.level_index + 1) / len(self.game.levels)
+        fill_rect = progress_rect.copy()
+        fill_rect.width = max(7, int(progress_rect.width * progress))
+        pygame.draw.rect(self.screen, (73, 205, 140), fill_rect, border_radius=4)
 
     def _stat_card(self, rect: pygame.Rect, label: str, value: str) -> None:
-        pygame.draw.rect(self.screen, BG_SOFT, rect, border_radius=10)
-        pygame.draw.rect(self.screen, PANEL_BORDER, rect, width=1, border_radius=10)
-        self._text(label, self.small_font, MUTED, (rect.x + 12, rect.y + 12))
+        pygame.draw.rect(self.screen, (17, 26, 47), rect, border_radius=12)
+        pygame.draw.rect(self.screen, (55, 69, 104), rect, width=1, border_radius=12)
+        self._text(label, self.small_font, MUTED, (rect.x + 12, rect.y + 11))
         self._text(value, self.number_font, TEXT, (rect.x + 12, rect.y + 35))
 
-    def _draw_button(self, rect: pygame.Rect, label: str, enabled: bool, secondary: bool, primary: bool = False) -> None:
+    def _draw_button(
+        self,
+        rect: pygame.Rect,
+        label: str,
+        enabled: bool,
+        secondary: bool,
+        primary: bool = False,
+    ) -> None:
+        hovered = enabled and rect.collidepoint(pygame.mouse.get_pos())
         if not enabled:
-            fill, border, color = (39, 51, 61), (51, 65, 76), (109, 126, 137)
+            fill, border, color = (34, 42, 62), (52, 62, 91), (100, 111, 145)
         elif primary:
-            fill, border, color = MINT_DARK, MINT, (250, 255, 250)
+            fill, border, color = ((48, 190, 104) if hovered else (31, 151, 83)), (111, 244, 157), (255, 255, 246)
         elif secondary:
-            fill, border, color = PANEL_LIGHT, PANEL_BORDER, TEXT
+            fill, border, color = ((53, 66, 99) if hovered else (35, 46, 76)), (81, 96, 138), TEXT
         else:
-            fill, border, color = PANEL_LIGHT, PANEL_BORDER, TEXT
-        pygame.draw.rect(self.screen, fill, rect, border_radius=9)
-        pygame.draw.rect(self.screen, border, rect, width=1, border_radius=9)
+            fill, border, color = ((53, 66, 99) if hovered else (35, 46, 76)), (81, 96, 138), TEXT
+        pygame.draw.rect(self.screen, (9, 14, 29), rect.move(0, 3), border_radius=10)
+        pygame.draw.rect(self.screen, fill, rect, border_radius=10)
+        pygame.draw.rect(self.screen, border, rect, width=1, border_radius=10)
         self._center_text(label, self.body_font, color, rect.center)
 
     def _key_hint(self, x: int, y: int, key: str, description: str) -> None:
-        key_surface = self.small_font.render(key, True, MINT)
-        desc_surface = self.small_font.render(description, True, MUTED)
-        self.screen.blit(key_surface, (x, y))
-        self.screen.blit(desc_surface, (x + 125, y))
+        self._text(key, self.small_font, (128, 231, 195), (x, y))
+        self._text(description, self.small_font, MUTED, (x + 130, y))
 
     def _draw_toast(self, width: int, height: int) -> None:
         if pygame.time.get_ticks() > self.toast_until or not self.toast:
             return
         label = self.body_font.render(self.toast, True, TEXT)
-        rect = pygame.Rect(0, 0, label.get_width() + 34, 42)
+        rect = pygame.Rect(0, 0, label.get_width() + 36, 44)
         rect.center = (width // 2, height - 25)
-        pygame.draw.rect(self.screen, (38, 57, 65), rect, border_radius=12)
-        pygame.draw.rect(self.screen, PANEL_BORDER, rect, width=1, border_radius=12)
+        pygame.draw.rect(self.screen, (29, 42, 71), rect, border_radius=12)
+        pygame.draw.rect(self.screen, (79, 97, 147), rect, width=1, border_radius=12)
         self.screen.blit(label, label.get_rect(center=rect.center))
 
+    def _update_particles(self) -> None:
+        if not self.particles:
+            return
+        now = pygame.time.get_ticks()
+        alive = []
+        for x0, y0, vx, vy, start in self.particles:
+            age = (now - start) / 1000
+            if age > 1.1:
+                continue
+            alive.append((x0, y0, vx, vy, start))
+            x = x0 + vx * age
+            y = y0 + vy * age + 34 * age * age
+            radius = max(1, int(4 * (1 - age)))
+            color = (255, int(190 + 55 * (1 - age)), 95)
+            pygame.draw.circle(
+                self.screen,
+                color,
+                (int(self.particle_origin[0] + x), int(self.particle_origin[1] + y)),
+                radius,
+            )
+        self.particles = alive
+
+    def _glow(self, center: tuple[int, int], radius: int, color: tuple[int, int, int], alpha: int) -> None:
+        diameter = radius * 2
+        layer = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+        for factor in (1.0, 0.72, 0.42, 0.2):
+            r = max(1, int(radius * factor))
+            a = max(1, int(alpha * (1 - factor * 0.42)))
+            pygame.draw.circle(layer, (*color, a), (radius, radius), r)
+        self.screen.blit(layer, (center[0] - radius, center[1] - radius), special_flags=pygame.BLEND_RGBA_ADD)
+
     def _panel(self, rect: pygame.Rect) -> None:
-        pygame.draw.rect(self.screen, (12, 19, 27), rect.move(0, 5), border_radius=17)
-        pygame.draw.rect(self.screen, PANEL, rect, border_radius=17)
-        pygame.draw.rect(self.screen, PANEL_BORDER, rect, width=1, border_radius=17)
+        pygame.draw.rect(self.screen, (5, 9, 20), rect.move(0, 5), border_radius=20)
+        pygame.draw.rect(self.screen, PANEL, rect, border_radius=20)
+        pygame.draw.rect(self.screen, PANEL_EDGE, rect, width=1, border_radius=20)
 
     def _text(self, value: str, font: pygame.font.Font, color: tuple[int, int, int], position: tuple[int, int]) -> None:
         self.screen.blit(font.render(value, True, color), position)
@@ -443,7 +622,7 @@ class SokobanApp:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Play Sokoban with a graphical interface.")
+    parser = argparse.ArgumentParser(description="Play Sokoban with an animated 2.5D graphical interface.")
     parser.add_argument("--level", type=int, default=1, help="starting level number (default: 1)")
     args = parser.parse_args()
     if not 1 <= args.level <= len(LEVELS):
