@@ -82,11 +82,16 @@ class SokobanApp:
             ) from exc
 
     def _slice_hero_sheet(self) -> list[list[pygame.Surface]]:
+        sheet_w, sheet_h = self.hero_sheet.get_size()
+        if sheet_w % 4 or sheet_h % 4:
+            raise RuntimeError("The hero spritesheet must be a regular 4x4 grid.")
+
+        frame_w, frame_h = sheet_w // 4, sheet_h // 4
         frames: list[list[pygame.Surface]] = []
         for row in range(4):
             direction: list[pygame.Surface] = []
             for col in range(4):
-                frame = pygame.Rect(col * 96, row * 144, 96, 144)
+                frame = pygame.Rect(col * frame_w, row * frame_h, frame_w, frame_h)
                 direction.append(self.hero_sheet.subsurface(frame).copy())
             frames.append(direction)
         return frames
@@ -156,12 +161,12 @@ class SokobanApp:
 
     @staticmethod
     def _direction_row(dx: int, dy: int) -> int:
-        # Sprite-sheet rows: front, left, right, back.
+        # Sprite-sheet rows: front, back, left, right.
         if dy > 0:
             return 0
-        if dx < 0:
+        if dy < 0:
             return 1
-        if dx > 0:
+        if dx < 0:
             return 2
         return 3
 
@@ -355,7 +360,8 @@ class SokobanApp:
             elif kind == "moving_box":
                 self._draw_crate(project((gx, gy)), tile_w, tile_h)
             elif kind == "hero":
-                self._draw_hero(project((gx, gy)), hero_row, moving, now, tile_h)
+                started_at = animation.started_at if moving and animation else None
+                self._draw_hero(project((gx, gy)), hero_row, moving, now, tile_h, started_at)
 
     @staticmethod
     def _ease(value: float) -> float:
@@ -424,8 +430,16 @@ class SokobanApp:
             (cx - hw + 7, bottom_left[1] - 5),
         ], width=2)
 
-    def _draw_hero(self, ground: tuple[int, int], direction_row: int, moving: bool, now: int, tile_h: int) -> None:
-        frame_index = (now // 68) % 4 if moving else 0
+    def _draw_hero(
+        self,
+        ground: tuple[int, int],
+        direction_row: int,
+        moving: bool,
+        now: int,
+        tile_h: int,
+        animation_started_at: int | None = None,
+    ) -> None:
+        frame_index = min(3, (now - animation_started_at) // 52) if moving and animation_started_at is not None else 0
         sprite = self.hero_frames[direction_row][frame_index]
         target_h = int(tile_h * 3.45)
         target_w = int(target_h * 96 / 144)
