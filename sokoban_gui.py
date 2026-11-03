@@ -69,7 +69,8 @@ class SokobanApp:
         self.toast_until = 0
         self.particles: list[tuple[float, float, float, float, int]] = []
         self.particle_origin = (0, 0)
-        pygame.key.set_repeat(175, 105)
+        # Match repeat timing to the 210 ms four-frame movement animation.
+        pygame.key.set_repeat(210, 210)
 
     def _load_hero_sheet(self) -> pygame.Surface:
         asset = Path(__file__).parent / "assets" / "hero_walk.webp"
