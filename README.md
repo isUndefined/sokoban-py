@@ -28,10 +28,10 @@ python sokoban.py --level 2
 
 | Key | Action |
 | --- | --- |
-| Arrow keys / W A S D | Move the player immediately (no Enter key) |
-| Z / Backspace | Undo the previous move |
-| R | Restart the current level |
-| N | Move to the next level after completing the current one |
+| Arrow keys / W A S D / Ц Ф Ы В | Move immediately (no Enter key) |
+| Z / Я / Backspace / U / Г | Undo the previous move |
+| R / К | Restart the current level |
+| N / Т | Move to the next level after completing the current one |
 | Esc | Quit |
 
 The level selector and action buttons can also be used with the mouse. The window can be resized.
