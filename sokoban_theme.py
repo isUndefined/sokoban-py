@@ -208,10 +208,6 @@ class StorybookSokobanApp(SokobanApp):
                 if mirror:
                     sprite = pygame.transform.flip(sprite, True, False)
                 surface.blit(sprite, (x,y))
-        if "crate" in self.art:
-            for x,y,size in ((22,557,82),(150,874,93),(1017,850,110)):
-                sprite = self._art_sprite("crate", size, round(size*188/160))
-                surface.blit(sprite, (x,y))
         if "lantern" in self.art:
             for x,y,scale in ((-7,165,125),(1370,270,112)):
                 glow = pygame.Surface((320,320),pygame.SRCALPHA)
@@ -255,8 +251,10 @@ class StorybookSokobanApp(SokobanApp):
             return (round(ox+(x-y)*tile_w/2), round(oy+(x+y)*tile_h/2))
 
         floor_centre = project(((cols-1)/2, (row_count-1)/2))
-        pygame.draw.ellipse(self.screen, (12, 12, 31),
-            (floor_centre[0]-area.width*.42, floor_centre[1]-15, area.width*.86, tile_h*(cols+row_count)*.54))
+        shadow_w = round(area.width * .72)
+        shadow_h = max(90, round(tile_h * (cols + row_count) * .27))
+        pygame.draw.ellipse(self.screen, (19, 21, 40),
+            (floor_centre[0]-shadow_w//2, floor_centre[1]+tile_h, shadow_w, shadow_h))
         for y in range(row_count):
             for x in range(cols):
                 pos = (x,y)
@@ -428,20 +426,20 @@ class StorybookSokobanApp(SokobanApp):
     def _draw_sidebar(self, rect: pygame.Rect) -> None:
         self._panel(rect)
         x,y=rect.x,rect.y
-        self._center_text("Level",self.body_font,PERIWINKLE,(rect.centerx,y+39))
+        self._center_text("Уровень",self.body_font,PERIWINKLE,(rect.centerx,y+39))
         self._button(pygame.Rect(x+18,y+69,52,56),"❮","previous_level",enabled=self.game.level_index>0,size=26)
         self._button(pygame.Rect(rect.right-70,y+69,52,56),"❯","following_level",enabled=self.game.level_index<len(self.game.levels)-1,size=26)
         self._center_text(f"{self.game.level_index+1} / {len(self.game.levels)}",self.number_font,WHITE,(rect.centerx,y+99))
         pygame.draw.line(self.screen,(91,90,150),(x+24,y+147),(rect.right-24,y+147),2)
         self._text("✦",self.heading_font,PERIWINKLE,(x+30,y+185))
-        self._text("Moves",self.body_font,PERIWINKLE,(x+110,y+170))
+        self._text("Ходы",self.body_font,PERIWINKLE,(x+110,y+170))
         self._shadow_text(str(self.game.moves),self.number_font,GOLD,(x+109,y+197))
         self._text("★",self.heading_font,GOLD,(x+29,y+282))
-        self._text("Best",self.body_font,PERIWINKLE,(x+110,y+272))
+        self._text("Рекорд",self.body_font,PERIWINKLE,(x+110,y+272))
         best=self.best_moves.get(str(self.game.level_index))
         self._text(str(best) if best is not None else "—",self.number_font,WHITE,(x+108,y+301))
         pygame.draw.line(self.screen,(89,87,145),(x+24,y+367),(rect.right-24,y+367),2)
-        self._text("Progress",self.body_font,PERIWINKLE,(x+27,y+389))
+        self._text("Прогресс",self.body_font,PERIWINKLE,(x+27,y+389))
         prog_w=rect.width-108
         bar=pygame.Rect(x+27,y+431,prog_w,24)
         pygame.draw.rect(self.screen,(19,21,55),bar,border_radius=13)
@@ -453,18 +451,18 @@ class StorybookSokobanApp(SokobanApp):
         self._text(f"{round(100*done/len(self.game.levels))}%",self.body_font,WHITE,(x+rect.width-75,y+430))
         undo=pygame.Rect(x+27,y+491,115,99)
         redo=pygame.Rect(x+165,y+491,115,99)
-        self._button(undo,"↶  Undo","undo",size=18)
-        self._button(redo,"⟳  Restart","restart",size=17)
-        self._button(pygame.Rect(x+25,y+621,rect.width-50,73),"▶   Next Level  ❯","next",
+        self._button(undo,"↶  Отменить","undo",size=16)
+        self._button(redo,"⟳  Заново","restart",size=17)
+        self._button(pygame.Rect(x+25,y+621,rect.width-50,73),"▶   Следующий уровень  ❯","next",
                      primary=True,enabled=self.game.is_won and self.game.level_index<len(self.game.levels)-1,size=20)
 
     def _draw_tip(self) -> None:
         rect=pygame.Rect(35,843,396,86)
         self._panel(rect)
         self._text("✦",self.number_font,GOLD,(rect.x+25,rect.y+18))
-        self._text("Tip:",self.body_font,GOLD,(rect.x+87,rect.y+16))
-        self._text("Plan your moves ahead!",self.small_font,WHITE,(rect.x+87,rect.y+47))
-        self._text("Arrows / WASD · Z undo · R restart",self.small_font,PERIWINKLE,(510,886))
+        self._text("Подсказка:",self.body_font,GOLD,(rect.x+87,rect.y+16))
+        self._text("Продумывай каждый ход",self.small_font,WHITE,(rect.x+87,rect.y+47))
+        self._text("Стрелки / WASD · Z отмена · R заново",self.small_font,PERIWINKLE,(510,886))
 
     def _shadow_text(self, value: str, font: pygame.font.Font,
                      color: tuple[int,int,int], pos: tuple[int,int]) -> None:
@@ -482,15 +480,15 @@ class StorybookSokobanApp(SokobanApp):
         for cx,cy,r in ((card.centerx-135,card.y+29,31),(card.centerx,card.y+6,45),(card.centerx+135,card.y+29,31)):
             self._glow((cx,cy),r+34,(255,187,39),125)
             self._draw_star((cx,cy),r,(255,209,72))
-        self._center_text("LEVEL COMPLETE!",self.title_font,GOLD,(card.centerx,card.y+143))
-        self._center_text(f"Great job! Solved in {self.game.moves} moves.",self.body_font,WHITE,(card.centerx,card.y+207))
+        self._center_text("УРОВЕНЬ ПРОЙДЕН!",self.title_font,GOLD,(card.centerx,card.y+143))
+        self._center_text(f"Отлично! Решено за {self.game.moves} ходов.",self.body_font,WHITE,(card.centerx,card.y+207))
         pygame.draw.line(self.screen,(97,96,153),(card.x+65,card.y+251),(card.right-65,card.y+251),2)
         has_next=self.game.level_index+1<len(self.game.levels)
         big=pygame.Rect(card.x+75,card.y+273,card.width-150,72)
-        label="▶   Next Level" if has_next else "★   All Levels Complete"
+        label="▶   Следующий уровень" if has_next else "★   Все уровни пройдены"
         self._popup_button(big,label,"next",enabled=has_next,primary=True,size=24)
-        self._popup_button(pygame.Rect(card.x+70,card.y+369,197,63),"⟳   Retry","restart",size=19)
-        self._popup_button(pygame.Rect(card.x+310,card.y+369,197,63),"⌂   Levels","menu",size=19)
+        self._popup_button(pygame.Rect(card.x+70,card.y+369,197,63),"⟳   Заново","restart",size=19)
+        self._popup_button(pygame.Rect(card.x+310,card.y+369,197,63),"⌂   Уровни","menu",size=19)
 
     def _popup_button(self, rect: pygame.Rect, label: str, action: str, *,
                       enabled: bool=True, primary: bool=False, size: int=18) -> None:
