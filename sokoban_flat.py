@@ -314,16 +314,16 @@ class FlatSokobanApp:
         fade = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
         fade.fill((5, 16, 36, 132))
         self.canvas.blit(fade, (0,0))
-        panel = pygame.Rect(504, 323, 528, 336)
+        panel = pygame.Rect(504, 302, 528, 396)
         self._panel(panel, bright=True)
-        self._text("УРОВЕНЬ ПРОЙДЕН!", "big", (768, 402), (255, 203, 91), center=True)
-        self._text(f"Ходов: {self.game.moves}  ·  Ящиков: {len(self.game.boxes)}", "medium", (768, 470), center=True)
+        self._text("УРОВЕНЬ ПРОЙДЕН!", "big", (768, 381), (255, 203, 91), center=True)
+        self._text(f"Ходов: {self.game.moves}  ·  Ящиков: {len(self.game.boxes)}", "medium", (768, 452), center=True)
         if self.game.level_index == len(self.game.levels) - 1:
-            self._text("Все уровни завершены", "small", (768, 545), center=True)
-            self._button(pygame.Rect(608, 566, 320, 60), "Меню уровней", "menu", variant="blue")
+            self._text("Все уровни завершены", "small", (768, 526), center=True)
+            self._button(pygame.Rect(608, 558, 320, 60), "Меню уровней", "menu", variant="blue")
         else:
-            self._button(pygame.Rect(589, 545, 358, 66), "Следующий уровень", "next", variant="gold")
-        self._button(pygame.Rect(688, 607, 160, 45), "Заново", "restart", variant="gray")
+            self._button(pygame.Rect(589, 523, 358, 66), "Следующий уровень", "next", variant="gold")
+        self._button(pygame.Rect(688, 620, 160, 51), "Заново", "restart", variant="gray")
 
     def _menu_overlay(self) -> None:
         if not self.menu_open:
