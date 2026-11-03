@@ -1,37 +1,49 @@
 # Sokoban Py
 
-A small, dependency-free implementation of the classic Sokoban puzzle game in Python.
+A graphical version of the classic Sokoban puzzle game, written in Python with Pygame. Push every crate onto a goal, one careful move at a time.
 
 ## Requirements
 
 - Python 3.10 or newer
-- No third-party packages
+- Pygame 2.5 or newer
 
-## Run the game
+## Install and run
 
-    python sokoban.py
+\`\`\`bash
+python -m pip install -r requirements.txt
+python sokoban.py
+\`\`\`
 
-Start at a particular level with:
+Start at a particular level:
 
-    python sokoban.py --level 2
+\`\`\`bash
+python sokoban.py --level 2
+\`\`\`
 
 ## Controls
 
-Enter one command and press Enter:
-
-| Command | Action |
+| Key | Action |
 | --- | --- |
-| W / A / S / D | Move up / left / down / right |
-| up / left / down / right | Alternative movement commands |
-| U | Undo the previous move |
+| Arrow keys / W A S D | Move the player immediately (no Enter key) |
+| Z / Backspace | Undo the previous move |
 | R | Restart the current level |
-| N | Go to the next level after completing the current one |
-| Q | Quit |
+| N | Move to the next level after completing the current one |
+| Esc | Quit |
 
-Push every crate ($) onto a goal (.). A crate on a goal is shown as *, and the player standing on a goal is shown as +. Crates can be pushed, but never pulled.
+The level selector and action buttons can also be used with the mouse. The window can be resized.
+
+## Optional terminal mode
+
+The earlier text interface is still available for environments without a graphical display:
+
+\`\`\`bash
+python sokoban.py --terminal
+\`\`\`
 
 ## Run tests
 
-    python -m unittest discover -s tests -v
+\`\`\`bash
+python -m unittest discover -s tests -v
+\`\`\`
 
-The game rules are kept separate from terminal input/output in the Game class, so movement, pushing, undo, restart, and level progression can be tested independently.
+The game rules remain independent of the graphical interface and are tested separately.
