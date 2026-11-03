@@ -9,7 +9,7 @@ A graphical version of the classic Sokoban puzzle game, written in Python with P
 
 The project uses pygame-ce, a maintained, API-compatible distribution that is imported as `pygame` in Python code. It provides prebuilt wheels for Python 3.14 on supported Linux platforms.
 
-The hero is rendered from a custom 4×4 transparent sprite sheet in `assets/hero_walk.webp`: four directions with four walk-cycle frames each. The game scales the frames to fit the current isometric board.
+The hero is rendered from a custom 4×4 transparent sprite sheet in `assets/hero_walk.png`: four directions with four walk-cycle frames each. The game scales the frames to fit the current isometric board.
 
 ## Install and run
 
