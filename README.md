@@ -1,11 +1,13 @@
 # Sokoban Py
 
-A graphical version of the classic Sokoban puzzle game, written in Python with Pygame. Push every crate onto a goal, one careful move at a time.
+A graphical version of the classic Sokoban puzzle game, written in Python with Pygame Community Edition (pygame-ce). Push every crate onto a goal, one careful move at a time.
 
 ## Requirements
 
 - Python 3.10 or newer
-- Pygame 2.5 or newer
+- pygame-ce 2.5.8 or newer
+
+The project uses pygame-ce, a maintained, API-compatible distribution that is imported as `pygame` in Python code. It provides prebuilt wheels for Python 3.14 on supported Linux platforms.
 
 ## Install and run
 
