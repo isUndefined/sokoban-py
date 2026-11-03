@@ -453,7 +453,7 @@ class StorybookSokobanApp(SokobanApp):
         redo=pygame.Rect(x+165,y+491,115,99)
         self._button(undo,"↶  Отменить","undo",size=16)
         self._button(redo,"⟳  Заново","restart",size=17)
-        self._button(pygame.Rect(x+25,y+621,rect.width-50,73),"▶   Следующий уровень  ❯","next",
+        self._button(pygame.Rect(x+25,y+621,rect.width-50,73),"▶   Далее  ❯","next",
                      primary=True,enabled=self.game.is_won and self.game.level_index<len(self.game.levels)-1,size=20)
 
     def _draw_tip(self) -> None:
