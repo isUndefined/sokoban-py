@@ -84,15 +84,21 @@ class SokobanApp:
 
     def _slice_hero_sheet(self) -> list[list[pygame.Surface]]:
         sheet_w, sheet_h = self.hero_sheet.get_size()
-        if sheet_w % 4 or sheet_h % 4:
-            raise RuntimeError("The hero spritesheet must be a regular 4x4 grid.")
+        if sheet_w < 4 or sheet_h < 4:
+            raise RuntimeError("The hero spritesheet must contain a 4x4 grid.")
 
-        frame_w, frame_h = sheet_w // 4, sheet_h // 4
+        # Divide the full image into four equal cells per axis. Integer
+        # boundaries also support source images whose dimensions are not
+        # perfectly divisible by four (for example, 1230x1278).
         frames: list[list[pygame.Surface]] = []
         for row in range(4):
             direction: list[pygame.Surface] = []
+            top = row * sheet_h // 4
+            bottom = (row + 1) * sheet_h // 4
             for col in range(4):
-                frame = pygame.Rect(col * frame_w, row * frame_h, frame_w, frame_h)
+                left = col * sheet_w // 4
+                right = (col + 1) * sheet_w // 4
+                frame = pygame.Rect(left, top, right - left, bottom - top)
                 direction.append(self.hero_sheet.subsurface(frame).copy())
             frames.append(direction)
         return frames
@@ -443,7 +449,8 @@ class SokobanApp:
         frame_index = min(3, (now - animation_started_at) // 52) if moving and animation_started_at is not None else 0
         sprite = self.hero_frames[direction_row][frame_index]
         target_h = int(tile_h * 3.45)
-        target_w = int(target_h * 96 / 144)
+        frame_w, frame_h = sprite.get_size()
+        target_w = max(1, round(target_h * frame_w / frame_h))
         sprite = pygame.transform.smoothscale(sprite, (target_w, target_h))
         shadow_y = ground[1] + int(tile_h * 0.16)
         pygame.draw.ellipse(
