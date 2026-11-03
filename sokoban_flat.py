@@ -157,11 +157,17 @@ class FlatSokobanApp:
         pygame.draw.rect(self.canvas, border, rect, 3, border_radius=17)
         pygame.draw.line(self.canvas, tuple(min(255, x + 25) for x in border),
                          (rect.x + 18, rect.y + 7), (rect.right - 18, rect.y + 7), 2)
-        text_color = WHITE if enabled else (171, 188, 211)
+        text_color = WHITE if enabled else (164, 185, 210)
+        # The icon and caption have independent slots: captions never overlap icons
+        # and must fit inside their buttons at every window size.
+        icon_space = 72 if icon else 0
+        usable = rect.width - icon_space - 30
+        font_name = next((name for name in ("medium", "small", "mini")
+                          if self.fonts[name].size(label)[0] <= usable), "mini")
         if icon:
-            self._icon(icon, (rect.x + 42, rect.centery), text_color)
-        self._text(label, "medium", (rect.centerx + (16 if icon else 0), rect.centery - 2),
-                   text_color, center=True)
+            self._icon(icon, (rect.x + 38, rect.centery), text_color)
+        center_x = rect.x + icon_space + (rect.width - icon_space) // 2
+        self._text(label, font_name, (center_x, rect.centery - 2), text_color, center=True)
         self.buttons.append(Button(rect, action, enabled))
 
     def _icon(self, kind: str, center: tuple[int, int], c: tuple[int, int, int]) -> None:
@@ -251,12 +257,28 @@ class FlatSokobanApp:
                 shadow = pygame.Rect(x0 + gx * tile - 5, y0 + gy * tile + 6,
                                      tile + 10, tile + 10)
                 pygame.draw.rect(self.canvas, (4, 14, 30), shadow, border_radius=10)
+        walls = self.game.walls
         for gy, row in enumerate(rows):
             for gx, _ in enumerate(row):
                 if (gx, gy) in outside:
                     continue
-                name = "wall" if (gx, gy) in self.game.walls else "floor"
+                name = "wall" if (gx, gy) in walls else "floor"
                 self.canvas.blit(self._asset(name, tile), (x0 + gx * tile, y0 + gy * tile))
+
+        # Coalesce adjacent wall tiles visually: add contours only where the
+        # wall meets an open tile or the outside, rather than embossing each
+        # wall tile as a separate block. This removes the repeating "stamp".
+        for wx, wy in walls:
+            left, top = x0 + wx * tile, y0 + wy * tile
+            neighbors = ((0, -1, (left, top), (left + tile, top)),
+                         (0, 1, (left, top + tile), (left + tile, top + tile)),
+                         (-1, 0, (left, top), (left, top + tile)),
+                         (1, 0, (left + tile, top), (left + tile, top + tile)))
+            for dx, dy, start, end in neighbors:
+                if (wx + dx, wy + dy) not in walls:
+                    pygame.draw.line(self.canvas, (19, 43, 78), start, end, 6)
+                    pygame.draw.line(self.canvas, (154, 183, 225), start, end, 2)
+
         for gx, gy in self.game.goals:
             self.canvas.blit(self._asset("goal", tile), (x0 + gx * tile, y0 + gy * tile))
         anim = self.animation
@@ -278,17 +300,17 @@ class FlatSokobanApp:
         if anim and pct < 1:
             px = anim.source[0] + (anim.target[0] - anim.source[0]) * eased
             py = anim.source[1] + (anim.target[1] - anim.source[1]) * eased
-        person_size = round(tile * 0.95)
+        person_size = round(tile * 1.07)
         person = self._player(person_size)
         self.canvas.blit(person, (round(x0 + (px + .5) * tile - person_size / 2),
                                   round(y0 + (py + .5) * tile - person_size / 2)))
 
     def _footer(self) -> None:
         y = 927
-        self._button(pygame.Rect(273, y, 296, 76), "Отменить", "undo", variant="blue", icon="undo")
-        self._button(pygame.Rect(603, y, 296, 76), "Заново", "restart", variant="blue", icon="restart")
+        self._button(pygame.Rect(246, y, 302, 76), "Отменить", "undo", variant="blue", icon="undo")
+        self._button(pygame.Rect(566, y, 302, 76), "Заново", "restart", variant="blue", icon="restart")
         can_advance = self.game.is_won and self.game.level_index < len(self.game.levels) - 1
-        self._button(pygame.Rect(933, y, 330, 76), "Следующий уровень", "next",
+        self._button(pygame.Rect(886, y, 408, 76), "Следующий уровень", "next",
                      enabled=can_advance, variant="gold", icon="next")
 
     def _win_overlay(self) -> None:
