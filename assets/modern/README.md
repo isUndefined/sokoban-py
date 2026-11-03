@@ -1,27 +1,34 @@
-# Modern Casual Puzzle sprites (asset review)
+# Modern Casual Puzzle — corrected asset candidates
 
-This folder contains a **new candidate art set** from the user's approved
-Sokoban mockup of 2026-11-03. It does not replace `assets/flat` or change the
-running Pygame screen yet; that is the next integration phase.
+This folder contains five sprites for the **next** Sokoban UI integration stage.
+Each PNG uses an identical **96×96 RGBA** canvas and the same tile center
+at **(48, 48)**. No new gameplay or renderer changes are included in this
+asset-only commit.
 
-| File | Meaning | Alpha |
-| ---- | ------- | ----- |
-| `floor.png` | beige tile, with clean rounded seams | opaque |
-| `wall.png` | blue square, beveled edge | transparent corners |
-| `crate.png` | orange wooden crate | transparent background |
-| `goal.png` | green placement indicator | transparent interior/background |
-| `player_up.png` | back-facing top-down character | transparent background |
-| `atlas.png` | horizontal 5-cell preview | transparent background |
+| PNG | Visible alpha box `(x,y,w,h)` | Purpose |
+|---|---|---|
+| `floor.png` | `(0,0,96,96)` | Fully opaque beige tile, tested previous version |
+| `wall.png` | `(3,3,90,90)` | Rounded blue wall, transparent corners |
+| `crate.png` | `(8,8,80,80)` | Orange crate, centered in cell |
+| `goal.png` | `(16,16,64,64)` | Green ring, transparent center |
+| `player_up.png` | `(22,9,52,78)` | Blue-clothed character, centered in cell |
 
-All logical asset sizes: **96 × 96 px** (atlas: 480 × 96 px). Scale these to
-64–80 px tiles with Pygame `smoothscale`. Draw floor, then goal, crate, and
-player in that order. The wall occupies a tile on its own.
+At runtime, blit the scaled image into the **exact cell rectangle**
+`(board_x + col*tile_size, board_y + row*tile_size, tile_size, tile_size)`.
+Do **not** add offsets based on sprite bounds or enlarge the player past tile
+size. Draw floor first, then goals, then crates, then player.
 
-The asset sheet is available as `assets/modern/atlas.png`. A separate
-Pillow composition was visually reviewed at 64 px tile size; this is **not**
-a Pygame screenshot. The existing first level and UI remain unchanged.
+The image generation outputs had faint stray pixels in the otherwise transparent
+background. Those pixels were removed using a foreground alpha threshold and
+largest-component isolation; the visible part of each sprite was then centered
+before resizing. The newly generated beige floor was rejected because it had a
+large transparent hole and color artifacts; the previously validated opaque
+floor was retained instead.
 
-Limitations: this stage provides one top-down character view; directional
-animation and game integration are separate, subsequent tasks. The same
-illustration should not be stretched or rotated 90 degrees as a substitute for
-proper directional walking frames.
+`atlas.png` is a transparent 5×1 sprite sheet for inspection, **not** the runtime
+animation strip. Side-by-side on-dark/on-light and 47px-grid tests are in
+`docs/modern-*` in this PR. These are Pillow compositions, **not Pygame screenshots**.
+
+Verification: `python -m unittest discover -s tests -v`. The sprite tests check
+size, transparency, bounding rectangles, and precise anchor geometry.
+Directional sprites and full game integration remain a separate step.
