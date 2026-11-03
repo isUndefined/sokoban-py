@@ -17,9 +17,9 @@ All logical asset sizes: **96 × 96 px** (atlas: 480 × 96 px). Scale these to
 64–80 px tiles with Pygame `smoothscale`. Draw floor, then goal, crate, and
 player in that order. The wall occupies a tile on its own.
 
-Preview: `docs/modern-assets-board-64px.png`. It is a **Pillow composition at
-realistic game scale**, not an SDL/Pygame screenshot, and is only used for art
-review. It renders the actual first level without changing the level data.
+The asset sheet is available as `assets/modern/atlas.png`. A separate
+Pillow composition was visually reviewed at 64 px tile size; this is **not**
+a Pygame screenshot. The existing first level and UI remain unchanged.
 
 Limitations: this stage provides one top-down character view; directional
 animation and game integration are separate, subsequent tasks. The same
