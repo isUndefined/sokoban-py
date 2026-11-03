@@ -9,16 +9,16 @@ A graphical version of the classic Sokoban puzzle game, written in Python with P
 
 ## Install and run
 
-\`\`\`bash
+```bash
 python -m pip install -r requirements.txt
 python sokoban.py
-\`\`\`
+```
 
 Start at a particular level:
 
-\`\`\`bash
+```bash
 python sokoban.py --level 2
-\`\`\`
+```
 
 ## Controls
 
@@ -36,14 +36,14 @@ The level selector and action buttons can also be used with the mouse. The windo
 
 The earlier text interface is still available for environments without a graphical display:
 
-\`\`\`bash
+```bash
 python sokoban.py --terminal
-\`\`\`
+```
 
 ## Run tests
 
-\`\`\`bash
+```bash
 python -m unittest discover -s tests -v
-\`\`\`
+```
 
 The game rules remain independent of the graphical interface and are tested separately.
