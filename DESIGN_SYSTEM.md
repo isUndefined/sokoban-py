@@ -25,6 +25,7 @@ This is the stable visual contract for future asset generations and gameplay cha
 - New art is prepared as individual transparent game objects or tile assets; never use a flattened screenshot as the game scene.
 
 ## Current integration
-- This is the first playable-code theme pass, not pixel-identical implementation of the reference painting.
-- GUI runtime tests and visual comparisons remain to be completed.
+- `python sokoban.py` launches `StorybookSokobanApp` from `sokoban_theme.py` by default.
+- The Storybook renderer uses the isometric board, fixed right HUD, tip panel, SVG world assets, and animated 4×4 hero atlas.
+- The headless UI smoke test renders the actual Storybook interface at two window sizes and verifies the victory flow.
 - Best-move progress is stored in `~/.sokoban-py-progress.json`.
