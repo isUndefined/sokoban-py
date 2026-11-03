@@ -269,15 +269,19 @@ class FlatSokobanApp:
         x0, y0, tile = self._board_geometry()
         self._board = x0, y0, tile
         outside = self._outside_tiles(rows)
-        # Draw every tile into its own exact grid cell. Sprite transparency is
-        # compensated by centering the visible artwork, not the source canvas.
+        # Paint the floor beneath every interior cell first. Wall sprites have
+        # transparent corners/edges, so drawing a wall without its floor leaves
+        # the navy scene background visible through those pixels.
         walls = self.game.walls
         for gy, row in enumerate(rows):
             for gx, _ in enumerate(row):
-                if (gx, gy) in outside:
-                    continue
-                name = "wall" if (gx, gy) in walls else "floor"
-                self._blit_cell(name, gx, gy, x0, y0, tile)
+                if (gx, gy) not in outside:
+                    self._blit_cell("floor", gx, gy, x0, y0, tile)
+
+        # Walls are a foreground layer over the continuous floor.
+        for gx, gy in walls:
+            if (gx, gy) not in outside:
+                self._blit_cell("wall", gx, gy, x0, y0, tile)
 
         for gx, gy in self.game.goals:
             self._blit_cell("goal", gx, gy, x0, y0, tile)
