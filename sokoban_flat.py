@@ -120,6 +120,20 @@ class FlatSokobanApp:
             self.rotated_player_cache[self.facing] = source
         return pygame.transform.smoothscale(source, (size, size))
 
+    def _blit_cell(self, name: str, gx: float, gy: float,
+                   x0: int, y0: int, tile: int) -> None:
+        """Center the visible (non-transparent) sprite bounds in one grid cell."""
+        sprite = self._player(tile) if name == "player" else self._asset(name, tile)
+        visible = sprite.get_bounding_rect(min_alpha=1)
+        if visible.width == 0 or visible.height == 0:
+            visible = sprite.get_rect()
+        cell_center = (round(x0 + (gx + 0.5) * tile),
+                       round(y0 + (gy + 0.5) * tile))
+        target = sprite.get_rect()
+        target.center = (cell_center[0] - (visible.centerx - target.centerx),
+                         cell_center[1] - (visible.centery - target.centery))
+        self.canvas.blit(sprite, target)
+
     def _viewport(self) -> tuple[float, float, float]:
         w, h = self.screen.get_size()
         scale = min(w / DESIGN_W, h / DESIGN_H)
@@ -255,29 +269,18 @@ class FlatSokobanApp:
         x0, y0, tile = self._board_geometry()
         self._board = x0, y0, tile
         outside = self._outside_tiles(rows)
-        # A restrained perimeter shadow belongs under wall tiles only.
-        # No dark grid-shaped blocks under the continuous floor.
-        for wx, wy in self.game.walls:
-            if (wx, wy) in outside:
-                continue
-            # Keep the shadow inside the same logical cell; it must not
-            # shift or enlarge the wall tile beyond the board grid.
-            shadow = pygame.Rect(x0 + wx * tile, y0 + wy * tile,
-                                 tile, tile)
-            pygame.draw.rect(self.canvas, (3, 12, 28), shadow, border_radius=12)
+        # Draw every tile into its own exact grid cell. Sprite transparency is
+        # compensated by centering the visible artwork, not the source canvas.
         walls = self.game.walls
         for gy, row in enumerate(rows):
             for gx, _ in enumerate(row):
                 if (gx, gy) in outside:
                     continue
                 name = "wall" if (gx, gy) in walls else "floor"
-                self.canvas.blit(self._asset(name, tile), (x0 + gx * tile, y0 + gy * tile))
-
-        # Preserve each illustrated blue wall tile's rounded border.
-        # Merging tile contours previously produced a flat blue block.
+                self._blit_cell(name, gx, gy, x0, y0, tile)
 
         for gx, gy in self.game.goals:
-            self.canvas.blit(self._asset("goal", tile), (x0 + gx * tile, y0 + gy * tile))
+            self._blit_cell("goal", gx, gy, x0, y0, tile)
         anim = self.animation
         pct = 1.0
         if anim:
@@ -288,20 +291,16 @@ class FlatSokobanApp:
         for gx, gy in self.game.boxes:
             if anim and pct < 1 and (gx,gy) == anim.box_target:
                 continue
-            self.canvas.blit(self._asset("crate", tile), (x0 + gx * tile, y0 + gy * tile))
+            self._blit_cell("crate", gx, gy, x0, y0, tile)
         if anim and pct < 1 and anim.box_source and anim.box_target:
             bx = anim.box_source[0] + (anim.box_target[0] - anim.box_source[0]) * eased
             by = anim.box_source[1] + (anim.box_target[1] - anim.box_source[1]) * eased
-            self.canvas.blit(self._asset("crate", tile), (round(x0 + bx * tile), round(y0 + by * tile)))
+            self._blit_cell("crate", bx, by, x0, y0, tile)
         px, py = self.game.player
         if anim and pct < 1:
             px = anim.source[0] + (anim.target[0] - anim.source[0]) * eased
             py = anim.source[1] + (anim.target[1] - anim.source[1]) * eased
-        # Every board entity occupies exactly one logical cell.
-        person_size = tile
-        person = self._player(person_size)
-        self.canvas.blit(person, (round(x0 + (px + .5) * tile - person_size / 2),
-                                  round(y0 + (py + .5) * tile - person_size / 2)))
+        self._blit_cell("player", px, py, x0, y0, tile)
 
     def _footer(self) -> None:
         y = 927
