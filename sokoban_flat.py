@@ -260,8 +260,10 @@ class FlatSokobanApp:
         for wx, wy in self.game.walls:
             if (wx, wy) in outside:
                 continue
-            shadow = pygame.Rect(x0 + wx * tile - 2, y0 + wy * tile + 4,
-                                 tile + 4, tile + 2)
+            # Keep the shadow inside the same logical cell; it must not
+            # shift or enlarge the wall tile beyond the board grid.
+            shadow = pygame.Rect(x0 + wx * tile, y0 + wy * tile,
+                                 tile, tile)
             pygame.draw.rect(self.canvas, (3, 12, 28), shadow, border_radius=12)
         walls = self.game.walls
         for gy, row in enumerate(rows):
@@ -295,7 +297,8 @@ class FlatSokobanApp:
         if anim and pct < 1:
             px = anim.source[0] + (anim.target[0] - anim.source[0]) * eased
             py = anim.source[1] + (anim.target[1] - anim.source[1]) * eased
-        person_size = round(tile * 1.35)
+        # Every board entity occupies exactly one logical cell.
+        person_size = tile
         person = self._player(person_size)
         self.canvas.blit(person, (round(x0 + (px + .5) * tile - person_size / 2),
                                   round(y0 + (py + .5) * tile - person_size / 2)))
