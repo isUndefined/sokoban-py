@@ -72,7 +72,7 @@ class SokobanApp:
         pygame.key.set_repeat(175, 105)
 
     def _load_hero_sheet(self) -> pygame.Surface:
-        asset = Path(__file__).parent / "assets" / "hero_walk.png"
+        asset = Path(__file__).parent / "assets" / "hero_walk.webp"
         try:
             return pygame.image.load(str(asset)).convert_alpha()
         except (pygame.error, FileNotFoundError) as exc:
@@ -161,7 +161,7 @@ class SokobanApp:
 
     @staticmethod
     def _direction_row(dx: int, dy: int) -> int:
-        # Sprite-sheet rows: front, back, left, right.
+        # Sprite-sheet rows: front-facing, back-facing, left-facing, right-facing.
         if dy > 0:
             return 0
         if dy < 0:
