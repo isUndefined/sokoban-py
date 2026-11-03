@@ -649,7 +649,8 @@ def main() -> None:
     args = parser.parse_args()
     if not 1 <= args.level <= len(LEVELS):
         parser.error(f"--level must be between 1 and {len(LEVELS)}")
-    SokobanApp(start_level=args.level - 1).run()
+    from sokoban_theme import StorybookSokobanApp
+    StorybookSokobanApp(start_level=args.level - 1).run()
 
 
 if __name__ == "__main__":
