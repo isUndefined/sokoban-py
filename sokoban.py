@@ -1,8 +1,9 @@
-"""A small, dependency-free terminal Sokoban game."""
+"""Sokoban game rules and state, with a graphical launcher."""
 
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -225,4 +226,9 @@ def play() -> None:
 
 
 if __name__ == "__main__":
-    play()
+    if "--terminal" in sys.argv:
+        sys.argv.remove("--terminal")
+        play()
+    else:
+        from sokoban_gui import main
+        main()
