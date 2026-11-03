@@ -57,6 +57,7 @@ class SokobanApp:
         self.number_font = pygame.font.SysFont("dejavusans", 27, bold=True)
         self.game = Game(level_index=start_level)
         self.buttons: list[Button] = []
+        self.popup_button: Button | None = None
         self.running = True
         self.animation: tuple[Position, Position, Position | None, Position | None, int] | None = None
         self.toast = ""
@@ -141,6 +142,14 @@ class SokobanApp:
         self.toast_until = pygame.time.get_ticks() + 1500
 
     def _handle_click(self, pos: tuple[int, int]) -> None:
+        if (
+            self.popup_button is not None
+            and self.popup_button.enabled
+            and self.popup_button.rect.collidepoint(pos)
+        ):
+            self._next_level()
+            return
+
         for button in self.buttons:
             if button.rect.collidepoint(pos) and button.enabled:
                 if button.action == "undo":
@@ -154,6 +163,7 @@ class SokobanApp:
                 return
 
     def _draw(self) -> None:
+        self.popup_button = None
         width, height = self.screen.get_size()
         self.screen.fill(BG)
         self._draw_background(width, height)
@@ -307,17 +317,23 @@ class SokobanApp:
         overlay = pygame.Surface(area.size, pygame.SRCALPHA)
         overlay.fill((14, 25, 31, 175))
         self.screen.blit(overlay, area.topleft)
-        card = pygame.Rect(0, 0, min(390, area.width - 36), 150)
+
+        has_next_level = self.game.level_index < len(self.game.levels) - 1
+        card_height = 190 if has_next_level else 150
+        card = pygame.Rect(0, 0, min(390, area.width - 36), card_height)
         card.center = area.center
         pygame.draw.rect(self.screen, (31, 51, 59), card, border_radius=18)
         pygame.draw.rect(self.screen, (93, 151, 127), card, width=1, border_radius=18)
-        self._center_text("LEVEL COMPLETE", self.heading_font, MINT, (card.centerx, card.y + 39))
-        if self.game.level_index == len(self.game.levels) - 1:
+
+        self._center_text("LEVEL COMPLETE", self.heading_font, MINT, (card.centerx, card.y + 37))
+        if has_next_level:
+            self._center_text("All crates are in place.", self.body_font, TEXT, (card.centerx, card.y + 73))
+            next_rect = pygame.Rect(card.x + 58, card.y + 112, card.width - 116, 42)
+            self._draw_button(next_rect, "Next Level   →", True, False, primary=True)
+            self.popup_button = Button(next_rect, "Next Level", "next", primary=True)
+        else:
             self._center_text("You solved every puzzle!", self.body_font, TEXT, (card.centerx, card.y + 75))
             self._center_text("Choose a level to play again", self.small_font, MUTED, (card.centerx, card.y + 105))
-        else:
-            self._center_text("All crates are in place.", self.body_font, TEXT, (card.centerx, card.y + 75))
-            self._center_text("Press N or click Next level", self.small_font, MUTED, (card.centerx, card.y + 105))
 
     def _draw_sidebar(self, rect: pygame.Rect) -> None:
         self._panel(rect)
