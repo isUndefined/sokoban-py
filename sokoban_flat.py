@@ -122,16 +122,16 @@ class FlatSokobanApp:
 
     def _blit_cell(self, name: str, gx: float, gy: float,
                    x0: int, y0: int, tile: int) -> None:
-        """Center the visible (non-transparent) sprite bounds in one grid cell."""
+        """Place each atlas cell on the exact board-grid cell, without alpha-based offsets.
+
+        Floor and wall sprites define the visual grid, so their source-cell
+        origins must stay identical. Game objects use the same cell center;
+        transparent margins in a sprite must never move the logical anchor.
+        """
         sprite = self._player(tile) if name == "player" else self._asset(name, tile)
-        visible = sprite.get_bounding_rect(min_alpha=1)
-        if visible.width == 0 or visible.height == 0:
-            visible = sprite.get_rect()
-        cell_center = (round(x0 + (gx + 0.5) * tile),
-                       round(y0 + (gy + 0.5) * tile))
         target = sprite.get_rect()
-        target.center = (cell_center[0] - (visible.centerx - target.centerx),
-                         cell_center[1] - (visible.centery - target.centery))
+        target.center = (round(x0 + (gx + 0.5) * tile),
+                         round(y0 + (gy + 0.5) * tile))
         self.canvas.blit(sprite, target)
 
     def _viewport(self) -> tuple[float, float, float]:
