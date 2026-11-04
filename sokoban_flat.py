@@ -55,7 +55,7 @@ class FlatSokobanApp:
         self.background = self._make_background()
         self.assets = self._load_assets()
         self.scale_cache: dict[tuple[str, int], pygame.Surface] = {}
-        self.rotated_player_cache: dict[int, pygame.Surface] = {}
+        self.facing = "up"  # sprite direction, never rotate a top-down character
         self.fonts = {
             "brand": pygame.font.SysFont("dejavusans", 51, bold=True),
             "big": pygame.font.SysFont("dejavusans", 34, bold=True),
@@ -68,7 +68,6 @@ class FlatSokobanApp:
         self.buttons: list[Button] = []
         self.menu_open = False
         self.animation: MoveAnimation | None = None
-        self.facing = 0  # 0/up, 90/left, 180/down, 270/right
         self._layout = (0.0, 0.0, 1.0)
         self._board = (0, 0, 0)
         self.toast = ""
@@ -76,7 +75,7 @@ class FlatSokobanApp:
         pygame.key.set_repeat(185, 165)
 
     def _load_assets(self) -> dict[str, pygame.Surface]:
-        """Read one optimized atlas containing the approved mockup's 2D sprites."""
+        """Load the approved atlas plus four independently oriented character views."""
         path = ASSETS / "atlas.png"
         names = ("floor", "wall", "crate", "goal", "player_up")
         try:
@@ -87,8 +86,31 @@ class FlatSokobanApp:
         expected = (cell * len(names), cell)
         if atlas.get_size() != expected:
             raise RuntimeError(f"Sprite atlas must be {expected}, got {atlas.get_size()}")
-        return {name: atlas.subsurface(pygame.Rect(i * cell, 0, cell, cell)).copy()
-                for i, name in enumerate(names)}
+        assets = {
+            name: atlas.subsurface(pygame.Rect(i * cell, 0, cell, cell)).copy()
+            for i, name in enumerate(names)
+        }
+        # Normalize the visible object inside the fixed 128x128 source cell.
+        # Do this once, not by adding per-sprite offsets to board coordinates.
+        for name in ("crate", "goal"):
+            sprite = assets[name]
+            bounds = sprite.get_bounding_rect(min_alpha=16)
+            if bounds.width and bounds.height:
+                normalized = pygame.Surface((cell, cell), pygame.SRCALPHA)
+                normalized.blit(sprite, ((cell - bounds.width) // 2 - bounds.x,
+                                         (cell - bounds.height) // 2 - bounds.y))
+                assets[name] = normalized
+
+        for direction in ("up", "down", "left", "right"):
+            path = ASSETS / f"player_{direction}.png"
+            try:
+                sprite = pygame.image.load(str(path)).convert_alpha()
+            except (OSError, pygame.error) as exc:
+                raise RuntimeError(f"Missing directional player sprite: {path}") from exc
+            if sprite.get_size() != (cell, cell):
+                raise RuntimeError(f"Player sprite {path} must be {cell}x{cell}")
+            assets[f"player_{direction}"] = sprite
+        return assets
 
     @staticmethod
     def _make_background() -> pygame.Surface:
@@ -114,25 +136,20 @@ class FlatSokobanApp:
         return sprite
 
     def _player(self, size: int) -> pygame.Surface:
-        source = self.rotated_player_cache.get(self.facing)
-        if source is None:
-            source = pygame.transform.rotate(self.assets["player_up"], self.facing)
-            self.rotated_player_cache[self.facing] = source
-        return pygame.transform.smoothscale(source, (size, size))
+        # Never rotate the whole sprite: a 180-degree rotation puts the
+        # character's head at the bottom of its cell.
+        return self._asset(f"player_{self.facing}", size)
+
+    @staticmethod
+    def _cell_origin(gx: float, gy: float, x0: int, y0: int,
+                     tile: int) -> tuple[int, int]:
+        """One grid origin shared by floors, walls, boxes, goals and the player."""
+        return round(x0 + gx * tile), round(y0 + gy * tile)
 
     def _blit_cell(self, name: str, gx: float, gy: float,
                    x0: int, y0: int, tile: int) -> None:
-        """Place each atlas cell on the exact board-grid cell, without alpha-based offsets.
-
-        Floor and wall sprites define the visual grid, so their source-cell
-        origins must stay identical. Game objects use the same cell center;
-        transparent margins in a sprite must never move the logical anchor.
-        """
         sprite = self._player(tile) if name == "player" else self._asset(name, tile)
-        target = sprite.get_rect()
-        target.center = (round(x0 + (gx + 0.5) * tile),
-                         round(y0 + (gy + 0.5) * tile))
-        self.canvas.blit(sprite, target)
+        self.canvas.blit(sprite, self._cell_origin(gx, gy, x0, y0, tile))
 
     def _viewport(self) -> tuple[float, float, float]:
         w, h = self.screen.get_size()
@@ -214,21 +231,31 @@ class FlatSokobanApp:
             pygame.draw.circle(self.canvas,c,(x+14,y-3),4)
 
     def _header(self) -> None:
-        self.canvas.blit(self._asset("crate", 68), (43, 11))
-        self._text("Sokoban", "brand", (127, 9))
-        pygame.draw.line(self.canvas, (57, 96, 153), (413, 17), (413, 78), 4)
-        self._panel(pygame.Rect(473, 12, 345, 68), bright=True)
-        self._text(f"Уровень {self.game.level_index + 1} / {len(self.game.levels)}", "big", (646, 45), center=True)
-        self._icon("footsteps", (948, 45), WHITE)
-        self._text("Ходы", "small", (973, 10))
-        self._text(str(self.game.moves), "big", (995, 38))
-        pygame.draw.line(self.canvas, (60, 100, 157), (1080, 18), (1080, 76), 4)
-        self._icon("box", (1132, 45), WHITE)
-        self._text("Ящики", "small", (1162, 10))
-        self._text(f"{self.game.boxes_on_goals} / {len(self.game.boxes)}", "big", (1192, 38))
-        self._panel(pygame.Rect(1404, 12, 75, 68))
-        self._icon("menu", (1441, 46), WHITE)
-        self.buttons.append(Button(pygame.Rect(1404, 12, 75, 68), "menu"))
+        """Balanced native-game HUD. No dashboard-style vertical separators."""
+        center_y = 50
+        self.canvas.blit(self._asset("crate", 65), (43, 16))
+        self._text("Sokoban", "brand", (122, 13))
+
+        level_rect = pygame.Rect(467, 17, 355, 66)
+        self._panel(level_rect, bright=True)
+        self._text(
+            f"Уровень {self.game.level_index + 1} / {len(self.game.levels)}",
+            "big", level_rect.center, center=True,
+        )
+
+        self._icon("footsteps", (939, center_y), WHITE)
+        self._text("Ходы", "small", (1013, 30), center=True)
+        self._text(str(self.game.moves), "big", (1013, 69), center=True)
+
+        self._icon("box", (1137, center_y), WHITE)
+        self._text("Ящики", "small", (1226, 30), center=True)
+        self._text(f"{self.game.boxes_on_goals} / {len(self.game.boxes)}",
+                   "big", (1226, 69), center=True)
+
+        menu = pygame.Rect(1407, 17, 75, 66)
+        self._panel(menu)
+        self._icon("menu", menu.center, WHITE)
+        self.buttons.append(Button(menu, "menu"))
 
     def _board_geometry(self) -> tuple[int, int, int]:
         rows = self.game.level.rows
@@ -269,19 +296,26 @@ class FlatSokobanApp:
         x0, y0, tile = self._board_geometry()
         self._board = x0, y0, tile
         outside = self._outside_tiles(rows)
-        # Paint the floor beneath every interior cell first. Wall sprites have
-        # transparent corners/edges, so drawing a wall without its floor leaves
-        # the navy scene background visible through those pixels.
         walls = self.game.walls
+        # Walkable cells alone receive the floor. The wall tiles have rounded
+        # transparent corners: putting beige floor behind them causes bright
+        # triangular leaks along the board silhouette.
         for gy, row in enumerate(rows):
             for gx, _ in enumerate(row):
-                if (gx, gy) not in outside:
-                    self._blit_cell("floor", gx, gy, x0, y0, tile)
+                if (gx, gy) in outside or (gx, gy) in walls:
+                    continue
+                left, top = self._cell_origin(gx, gy, x0, y0, tile)
+                pygame.draw.rect(self.canvas, (233, 212, 183),
+                                 pygame.Rect(left, top, tile, tile))
+                self._blit_cell("floor", gx, gy, x0, y0, tile)
 
-        # Walls are a foreground layer over the continuous floor.
-        for gx, gy in walls:
-            if (gx, gy) not in outside:
-                self._blit_cell("wall", gx, gy, x0, y0, tile)
+        for gx, gy in sorted(walls, key=lambda pos: (pos[1], pos[0])):
+            if (gx, gy) in outside:
+                continue
+            left, top = self._cell_origin(gx, gy, x0, y0, tile)
+            pygame.draw.rect(self.canvas, (17, 41, 76),
+                             pygame.Rect(left, top, tile, tile))
+            self._blit_cell("wall", gx, gy, x0, y0, tile)
 
         for gx, gy in self.game.goals:
             self._blit_cell("goal", gx, gy, x0, y0, tile)
@@ -308,10 +342,13 @@ class FlatSokobanApp:
 
     def _footer(self) -> None:
         y = 927
-        self._button(pygame.Rect(246, y, 302, 76), "Отменить", "undo", variant="blue", icon="undo")
-        self._button(pygame.Rect(566, y, 302, 76), "Заново", "restart", variant="blue", icon="restart")
+        # Three equal-width controls centered as one native-game toolbar.
+        self._button(pygame.Rect(224, y, 350, 76), "Отменить", "undo",
+                     variant="blue", icon="undo")
+        self._button(pygame.Rect(593, y, 350, 76), "Заново", "restart",
+                     variant="blue", icon="restart")
         can_advance = self.game.is_won and self.game.level_index < len(self.game.levels) - 1
-        self._button(pygame.Rect(886, y, 408, 76), "Следующий уровень", "next",
+        self._button(pygame.Rect(962, y, 350, 76), "Следующий уровень", "next",
                      enabled=can_advance, variant="gold", icon="next")
 
     def _win_overlay(self) -> None:
@@ -338,13 +375,14 @@ class FlatSokobanApp:
         overlay.fill((2, 12, 31, 190))
         self.canvas.blit(overlay,(0,0))
         self.buttons = []  # Modal: only the menu receives clicks.
-        card = pygame.Rect(505, 260, 526, 500)
+        card = pygame.Rect(508, 253, 520, 514)
         self._panel(card, bright=True)
-        self._text("ВЫБОР УРОВНЯ", "big", (768, 326), center=True)
+        self._text("ВЫБОР УРОВНЯ", "big", (card.centerx, 321), center=True)
         for idx, level in enumerate(self.game.levels):
-            self._button(pygame.Rect(579, 366 + idx * 83, 378, 62),
+            self._button(pygame.Rect(card.centerx - 181, 367 + idx * 81, 362, 64),
                          f"Уровень {idx + 1}", f"level:{idx}", variant="blue")
-        self._button(pygame.Rect(632, 642, 272, 65), "Продолжить", "close", variant="gray")
+        self._button(pygame.Rect(card.centerx - 140, 653, 280, 64),
+                     "Продолжить", "close", variant="gray")
 
     def _draw(self) -> None:
         self.canvas.blit(self.background, (0,0))
@@ -380,7 +418,8 @@ class FlatSokobanApp:
         boxes = set(self.game.boxes)
         if not self.game.move(dx,dy):
             return
-        self.facing = {(0,-1):0,(-1,0):90,(0,1):180,(1,0):270}[(dx,dy)]
+        self.facing = {(0, -1): "up", (0, 1): "down",
+                       (-1, 0): "left", (1, 0): "right"}[(dx, dy)]
         gone = boxes - self.game.boxes
         arrived = self.game.boxes - boxes
         self.animation = MoveAnimation(source,self.game.player,pygame.time.get_ticks(),
@@ -395,13 +434,13 @@ class FlatSokobanApp:
     def _restart(self) -> None:
         self.game.restart()
         self.animation = None
-        self.facing = 0
+        self.facing = "up"
         self.menu_open = False
 
     def _next(self) -> None:
         if self.game.is_won and self.game.next_level():
             self.animation = None
-            self.facing = 0
+            self.facing = "up"
             self.menu_open = False
 
     def _click(self, pos: tuple[int,int]) -> None:
@@ -421,7 +460,7 @@ class FlatSokobanApp:
                 idx = int(action.partition(":")[2])
                 self.game = Game(levels=self.game.levels,level_index=idx)
                 self.animation = None
-                self.facing = 0
+                self.facing = "up"
                 self.menu_open = False
             return
 
