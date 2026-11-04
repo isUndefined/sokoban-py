@@ -25,6 +25,9 @@ MUTED = (169, 187, 217)
 ACCENT = (255, 188, 45)
 BLUE = (60, 100, 156)
 GREEN = (68, 194, 98)
+FLOOR_GROUT = (200, 177, 152)
+FLOOR_TILE = (241, 223, 201)
+FLOOR_HIGHLIGHT = (251, 237, 218)
 
 
 @dataclass
@@ -150,6 +153,18 @@ class FlatSokobanApp:
                    x0: int, y0: int, tile: int) -> None:
         sprite = self._player(tile) if name == "player" else self._asset(name, tile)
         self.canvas.blit(sprite, self._cell_origin(gx, gy, x0, y0, tile))
+
+    def _draw_floor_cell(self, gx: int, gy: int, x0: int, y0: int,
+                         tile: int) -> None:
+        """Draw seams from the true logical grid, never from the floor PNG."""
+        left, top = self._cell_origin(gx, gy, x0, y0, tile)
+        cell = pygame.Rect(left, top, tile, tile)
+        pygame.draw.rect(self.canvas, FLOOR_GROUT, cell)
+        inset = cell.inflate(-4, -4)
+        pygame.draw.rect(self.canvas, FLOOR_TILE, inset, border_radius=3)
+        pygame.draw.line(self.canvas, FLOOR_HIGHLIGHT,
+                         (inset.left + 4, inset.top + 1),
+                         (inset.right - 5, inset.top + 1), 1)
 
     def _viewport(self) -> tuple[float, float, float]:
         w, h = self.screen.get_size()
@@ -297,17 +312,13 @@ class FlatSokobanApp:
         self._board = x0, y0, tile
         outside = self._outside_tiles(rows)
         walls = self.game.walls
-        # Walkable cells alone receive the floor. The wall tiles have rounded
-        # transparent corners: putting beige floor behind them causes bright
-        # triangular leaks along the board silhouette.
+        # Floor grout and tile centers follow the exact logical grid.
+        # Wall cells receive no floor to prevent bright corner leaks.
         for gy, row in enumerate(rows):
             for gx, _ in enumerate(row):
                 if (gx, gy) in outside or (gx, gy) in walls:
                     continue
-                left, top = self._cell_origin(gx, gy, x0, y0, tile)
-                pygame.draw.rect(self.canvas, (233, 212, 183),
-                                 pygame.Rect(left, top, tile, tile))
-                self._blit_cell("floor", gx, gy, x0, y0, tile)
+                self._draw_floor_cell(gx, gy, x0, y0, tile)
 
         for gx, gy in sorted(walls, key=lambda pos: (pos[1], pos[0])):
             if (gx, gy) in outside:
