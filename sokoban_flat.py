@@ -18,6 +18,7 @@ DESIGN_W, DESIGN_H = 1536, 1024
 FPS = 60
 MOVE_MS = 180
 GAME_TILE_SIZE = 78  # Fixed logical pixels in the 1536x1024 design canvas
+GOAL_GLOW_MS = 240
 ASSETS = Path(__file__).resolve().parent / "assets" / "flat"
 BG_TOP = (12, 29, 54)
 BG_BOTTOM = (8, 24, 48)
@@ -47,6 +48,12 @@ class MoveAnimation:
     box_target: tuple[int, int] | None = None
 
 
+@dataclass
+class GoalGlow:
+    position: tuple[int, int]
+    start: int  # When the crate finishes moving into its target.
+
+
 class FlatSokobanApp:
     """A fixed virtual-canvas GUI that scales without rearranging the UI."""
 
@@ -72,6 +79,7 @@ class FlatSokobanApp:
         self.buttons: list[Button] = []
         self.menu_open = False
         self.animation: MoveAnimation | None = None
+        self.goal_glow: GoalGlow | None = None
         self._layout = (0.0, 0.0, 1.0)
         self._board = (0, 0, 0)
         self.toast = ""
@@ -326,6 +334,39 @@ class FlatSokobanApp:
                     frontier.append(n)
         return seen
 
+    def _goal_glow_progress(self, now: int) -> float | None:
+        glow = self.goal_glow
+        if glow is None:
+            return None
+        if glow.position not in self.game.goals or glow.position not in self.game.boxes:
+            self.goal_glow = None
+            return None
+        elapsed = now - glow.start
+        if elapsed >= GOAL_GLOW_MS:
+            self.goal_glow = None
+            return None
+        return elapsed / GOAL_GLOW_MS if elapsed >= 0 else None
+
+    def _draw_goal_glow(self, pos: tuple[int, int], x0: int, y0: int,
+                        tile: int, phase: float) -> None:
+        """Temporary green outline over a crate; no bitmap resampling."""
+        intensity = round(210 * math.sin(math.pi * phase))
+        if intensity <= 0:
+            return
+        overlay = pygame.Surface((tile, tile), pygame.SRCALPHA)
+        radius = max(8, round(tile * 0.13))
+        pygame.draw.rect(
+            overlay, (79, 227, 117, intensity // 7),
+            pygame.Rect(6, 6, tile - 12, tile - 12), border_radius=radius)
+        for inset, width, alpha in ((1, 2, intensity // 4),
+                                    (4, 3, intensity),
+                                    (8, 2, intensity // 3)):
+            pygame.draw.rect(
+                overlay, (100, 255, 148, alpha),
+                pygame.Rect(inset, inset, tile - 2 * inset, tile - 2 * inset),
+                width=width, border_radius=radius)
+        self.canvas.blit(overlay, self._cell_origin(*pos, x0, y0, tile))
+
     def _board_layer(self) -> None:
         rows = self.game.level.rows
         x0, y0, tile = self._board_geometry()
@@ -390,9 +431,10 @@ class FlatSokobanApp:
         for gx, gy in self.game.goals:
             self._blit_cell("goal", gx, gy, x0, y0, tile)
         anim = self.animation
+        now = pygame.time.get_ticks()
         pct = 1.0
         if anim:
-            pct = min(1.0, (pygame.time.get_ticks() - anim.start) / MOVE_MS)
+            pct = min(1.0, max(0.0, (now - anim.start) / MOVE_MS))
             if pct >= 1:
                 self.animation = None
         eased = pct * pct * (3 - 2 * pct)
@@ -404,6 +446,10 @@ class FlatSokobanApp:
             bx = anim.box_source[0] + (anim.box_target[0] - anim.box_source[0]) * eased
             by = anim.box_source[1] + (anim.box_target[1] - anim.box_source[1]) * eased
             self._blit_cell("crate", bx, by, x0, y0, tile)
+        # Keep the glow visible along the crate edge after movement completes.
+        phase = self._goal_glow_progress(now)
+        if phase is not None and self.goal_glow is not None:
+            self._draw_goal_glow(self.goal_glow.position, x0, y0, tile, phase)
         px, py = self.game.player
         if anim and pct < 1:
             px = anim.source[0] + (anim.target[0] - anim.source[0]) * eased
@@ -416,7 +462,8 @@ class FlatSokobanApp:
 
     def _victory_ready(self) -> bool:
         """Show success only after the last box has finished animating."""
-        return self.game.is_won and self.animation is None
+        return (self.game.is_won and self.animation is None
+                and self.goal_glow is None)
 
     def _footer(self) -> None:
         y = 927
@@ -500,24 +547,33 @@ class FlatSokobanApp:
                        (-1, 0): "left", (1, 0): "right"}[(dx, dy)]
         gone = boxes - self.game.boxes
         arrived = self.game.boxes - boxes
-        self.animation = MoveAnimation(source,self.game.player,pygame.time.get_ticks(),
-                                       next(iter(gone)) if gone else None,
-                                       next(iter(arrived)) if arrived else None)
+        source_box = next(iter(gone)) if gone else None
+        target_box = next(iter(arrived)) if arrived else None
+        now = pygame.time.get_ticks()
+        self.animation = MoveAnimation(source, self.game.player, now,
+                                       source_box, target_box)
+        if self.goal_glow and self.goal_glow.position not in self.game.boxes:
+            self.goal_glow = None
+        if target_box is not None and target_box in self.game.goals:
+            self.goal_glow = GoalGlow(target_box, now + MOVE_MS)
 
     def _undo(self) -> None:
         self.animation = None
+        self.goal_glow = None
         if not self.game.undo():
             self._show("Нет ходов для отмены")
 
     def _restart(self) -> None:
         self.game.restart()
         self.animation = None
+        self.goal_glow = None
         self.facing = "up"
         self.menu_open = False
 
     def _next(self) -> None:
         if self._victory_ready() and self.game.next_level():
             self.animation = None
+            self.goal_glow = None
             self.facing = "up"
             self.menu_open = False
 
@@ -538,6 +594,7 @@ class FlatSokobanApp:
                 idx = int(action.partition(":")[2])
                 self.game = Game(levels=self.game.levels,level_index=idx)
                 self.animation = None
+                self.goal_glow = None
                 self.facing = "up"
                 self.menu_open = False
             return

@@ -14,8 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import pygame  # noqa: E402
-from sokoban import Game  # noqa: E402
-from sokoban_flat import DESIGN_H, DESIGN_W, MOVE_MS, GAME_TILE_SIZE, MoveAnimation, FlatSokobanApp  # noqa: E402
+from sokoban import Game, Level  # noqa: E402
+from sokoban_flat import (DESIGN_H, DESIGN_W, MOVE_MS, GOAL_GLOW_MS,
+                          GAME_TILE_SIZE, MoveAnimation, FlatSokobanApp)  # noqa: E402
 
 SOLUTION = "DRDDRRRRRLLULURRRLLURR"
 
@@ -113,6 +114,7 @@ def exercise() -> None:
         assert app.facing == "down"
         assert app.game.player == (4, 5)
         assert app.animation is not None
+        assert app.goal_glow is None
         for index, fraction in enumerate((0.08, 0.34, 0.60, 0.86)):
             app.animation.start = pygame.time.get_ticks() - int(MOVE_MS * fraction)
             app._draw()
@@ -126,6 +128,56 @@ def exercise() -> None:
         app._restart()
         assert app.facing == "up"
         assert app.game.player == (4, 4)
+
+        # A final push completes in 180 ms, then glows for 240 ms before
+        # the victory modal is allowed to appear.
+        test_level = Level("Goal glow", (
+            "#####",
+            "#   #",
+            "# . #",
+            "# $ #",
+            "# @ #",
+            "#####",
+        ))
+        app.game = Game(levels=(test_level,))
+        app._move(0, -1)
+        assert app.game.is_won
+        assert app.goal_glow is not None
+        assert app.goal_glow.position == (2, 2)
+        assert app.goal_glow.start == app.animation.start + MOVE_MS
+        app._draw()
+        assert not app._victory_ready()
+        pygame.image.save(app.screen, str(screenshots / "sokoban-goal-push.png"))
+
+        # Set start times deterministically, without sleeps in CI.
+        mid = pygame.time.get_ticks() - MOVE_MS - GOAL_GLOW_MS // 2
+        app.animation.start = mid
+        app.goal_glow.start = mid + MOVE_MS
+        app._draw()
+        assert app.animation is None
+        assert app.goal_glow is not None
+        assert not app._victory_ready()
+        pygame.image.save(app.screen, str(screenshots / "sokoban-goal-glow.png"))
+
+        # Undo and Restart must clear unfinished feedback.
+        app._undo()
+        assert not app.game.is_won
+        assert app.goal_glow is None
+        app._move(0, -1)
+        assert app.goal_glow is not None
+        app._restart()
+        assert app.goal_glow is None and app.animation is None
+
+        app._move(0, -1)
+        assert app.goal_glow is not None
+        elapsed = pygame.time.get_ticks() - MOVE_MS - GOAL_GLOW_MS - 10
+        app.animation.start = elapsed
+        app.goal_glow.start = elapsed + MOVE_MS
+        app._draw()
+        assert app.animation is None and app.goal_glow is None
+        assert app._victory_ready()
+        pygame.image.save(
+            app.screen, str(screenshots / "sokoban-goal-glow-complete.png"))
 
         game = Game()
         directions = {"U": (0, -1), "D": (0, 1), "L": (-1, 0), "R": (1, 0)}
