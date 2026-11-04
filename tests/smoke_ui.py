@@ -101,6 +101,21 @@ def exercise() -> None:
             assert not next(button for button in app.buttons if button.action == "next").enabled
             pygame.image.save(app.screen, str(screenshots / f"sokoban-{width}x{height}.png"))
 
+        # HUD information must never expose dummy interactive rectangles;
+        # check both smaller levels after the controls/background redesign.
+        for index in (1, 2):
+            app.game = Game(level_index=index)
+            app._draw()
+            board_x, board_y, fixed_tile = app._board
+            assert fixed_tile == 78
+            rows, columns = len(app.game.level.rows), len(app.game.level.rows[0])
+            assert 110 <= board_y and board_y + rows * fixed_tile <= 911
+            assert set(button.action for button in app.buttons) == {
+                "menu", "undo", "restart", "next"}
+            pygame.image.save(
+                app.screen, str(screenshots / f"sokoban-redesigned-ui-level-{index+1}.png"))
+        app.game = Game()
+
         app.menu_open = True
         app._draw()
         assert all(btn.action.startswith("level:") or btn.action == "close" for btn in app.buttons)
