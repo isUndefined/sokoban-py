@@ -17,6 +17,7 @@ from sokoban import Game, LEVELS
 DESIGN_W, DESIGN_H = 1536, 1024
 FPS = 60
 MOVE_MS = 180
+GAME_TILE_SIZE = 78  # Fixed logical pixels in the 1536x1024 design canvas
 ASSETS = Path(__file__).resolve().parent / "assets" / "flat"
 BG_TOP = (12, 29, 54)
 BG_BOTTOM = (8, 24, 48)
@@ -294,9 +295,9 @@ class FlatSokobanApp:
     def _board_geometry(self) -> tuple[int, int, int]:
         rows = self.game.level.rows
         cols, nr = len(rows[0]), len(rows)
-        # The board has its own fixed zone between HUD and controls.
-        # Preserve breathing room while making the 13x10 first map prominent.
-        tile = min(107, 1060 // cols, 780 // nr)
+        # All levels use exactly the same logical tile size. Only the
+        # board's centered origin changes when a level has fewer cells.
+        tile = GAME_TILE_SIZE
         x = (DESIGN_W - cols * tile) // 2
         y = 118 + (784 - nr * tile) // 2
         return x, y, tile

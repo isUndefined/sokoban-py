@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 import pygame  # noqa: E402
 from sokoban import Game  # noqa: E402
-from sokoban_flat import DESIGN_H, DESIGN_W, MOVE_MS, MoveAnimation, FlatSokobanApp  # noqa: E402
+from sokoban_flat import DESIGN_H, DESIGN_W, MOVE_MS, GAME_TILE_SIZE, MoveAnimation, FlatSokobanApp  # noqa: E402
 
 SOLUTION = "DRDDRRRRRLLULURRRLLURR"
 
@@ -34,6 +34,16 @@ def exercise() -> None:
         assert all(f"player_{direction}" in app.assets
                    for direction in ("up", "down", "left", "right"))
         assert app.facing == "up"
+        # The viewport must not resize the grid when switching levels.
+        assert GAME_TILE_SIZE == 78
+        for level_index, level in enumerate(app.game.levels):
+            app.game = Game(level_index=level_index)
+            origin_x, origin_y, tile = app._board_geometry()
+            assert tile == 78
+            cols, rows = len(level.rows[0]), len(level.rows)
+            assert origin_x == (DESIGN_W - cols * 78) // 2
+            assert origin_y == 118 + (784 - rows * 78) // 2
+        app.game = Game()
         # Every frame shares the same 128px canvas and transparent margins.
         for direction in ("up", "down", "left", "right"):
             app.facing = direction
@@ -51,7 +61,7 @@ def exercise() -> None:
         for width, height in ((1280, 854), (1536, 1024)):
             app.screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
             app._draw()
-            assert app._board[2] >= 60
+            assert app._board[2] == GAME_TILE_SIZE
             x0, y0, tile = app._board
             assert app._cell_origin(0, 0, x0, y0, tile) == (x0, y0)
             assert app._cell_origin(3, 2, x0, y0, tile) == (
