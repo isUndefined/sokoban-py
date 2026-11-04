@@ -390,6 +390,10 @@ class FlatSokobanApp:
             py = anim.source[1] + (anim.target[1] - anim.source[1]) * eased
         self._blit_cell("player", px, py, x0, y0, tile)
 
+    def _victory_ready(self) -> bool:
+        """Show success only after the last box has finished animating."""
+        return self.game.is_won and self.animation is None
+
     def _footer(self) -> None:
         y = 927
         # Three equal-width controls centered as one native-game toolbar.
@@ -397,12 +401,12 @@ class FlatSokobanApp:
                      variant="blue", icon="undo")
         self._button(pygame.Rect(593, y, 350, 76), "Заново", "restart",
                      variant="blue", icon="restart")
-        can_advance = self.game.is_won and self.game.level_index < len(self.game.levels) - 1
+        can_advance = self._victory_ready() and self.game.level_index < len(self.game.levels) - 1
         self._button(pygame.Rect(962, y, 350, 76), "Следующий уровень", "next",
                      enabled=can_advance, variant="gold", icon="next")
 
     def _win_overlay(self) -> None:
-        if not self.game.is_won:
+        if not self._victory_ready():
             return
         fade = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
         fade.fill((5, 16, 36, 132))
@@ -440,8 +444,8 @@ class FlatSokobanApp:
         self._header()
         self._board_layer()
         self._footer()
-        if self.game.is_won:
-            self.buttons.clear()  # Victory modal owns input until dismissed.
+        if self._victory_ready():
+            self.buttons.clear()  # Victory modal owns input after the final push.
             self._win_overlay()
         if self.menu_open:
             self._menu_overlay()
@@ -488,7 +492,7 @@ class FlatSokobanApp:
         self.menu_open = False
 
     def _next(self) -> None:
-        if self.game.is_won and self.game.next_level():
+        if self._victory_ready() and self.game.next_level():
             self.animation = None
             self.facing = "up"
             self.menu_open = False

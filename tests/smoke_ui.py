@@ -103,8 +103,31 @@ def exercise() -> None:
             assert game.move(*directions[key]), "Invalid solution step"
         assert game.is_won and game.boxes_on_goals == 3
         app.game = game
+        # The rules mark the level solved before the final box reaches its
+        # destination on screen. Keep the modal and Next button unavailable
+        # until the visual transition has finished.
+        from sokoban_flat import MOVE_MS, MoveAnimation
+        app.animation = MoveAnimation(
+            source=app.game.player, target=app.game.player,
+            start=pygame.time.get_ticks(),
+            box_source=next(iter(app.game.goals)),
+            box_target=next(iter(app.game.goals)),
+        )
         app._draw()
-        assert any(button.action == "next" and button.enabled for button in app.buttons)
+        assert app.game.is_won and not app._victory_ready()
+        assert not any(button.action == "next" and button.enabled
+                       for button in app.buttons)
+        assert not any(button.action == "restart"
+                       for button in app.buttons if button.rect.y == 620)
+        pygame.image.save(
+            app.screen, str(screenshots / "sokoban-winning-push-in-flight.png"))
+        # Simulate elapsed time deterministically; no sleeps in CI.
+        app.animation.start = pygame.time.get_ticks() - MOVE_MS - 10
+        app._draw()
+        assert app.animation is None
+        assert app._victory_ready()
+        assert any(button.action == "next" and button.enabled
+                   for button in app.buttons)
         pygame.image.save(app.screen, str(screenshots / "sokoban-victory.png"))
         assert app.game.next_level()
         assert app.game.level_index == 1 and app.game.moves == 0
