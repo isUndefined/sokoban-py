@@ -16,7 +16,7 @@ from sokoban import Game, LEVELS
 
 DESIGN_W, DESIGN_H = 1536, 1024
 FPS = 60
-MOVE_MS = 155
+MOVE_MS = 180
 ASSETS = Path(__file__).resolve().parent / "assets" / "flat"
 BG_TOP = (12, 29, 54)
 BG_BOTTOM = (8, 24, 48)
@@ -113,6 +113,21 @@ class FlatSokobanApp:
             if sprite.get_size() != (cell, cell):
                 raise RuntimeError(f"Player sprite {path} must be {cell}x{cell}")
             assets[f"player_{direction}"] = sprite
+
+        # Approved 16-frame walking sprite sheet, 4 directions by 4 phases.
+        walk_path = ASSETS / "player_walk.png"
+        try:
+            walk_atlas = pygame.image.load(str(walk_path)).convert_alpha()
+        except (OSError, pygame.error) as exc:
+            raise RuntimeError(f"Missing walking atlas: {walk_path}") from exc
+        if walk_atlas.get_size() != (cell * 4, cell * 4):
+            raise RuntimeError(
+                f"Expected a {cell * 4}x{cell * 4} walking atlas, "
+                f"got {walk_atlas.get_size()}")
+        for row, direction in enumerate(("up", "down", "left", "right")):
+            for frame in range(4):
+                assets[f"walk_{direction}_{frame}"] = walk_atlas.subsurface(
+                    pygame.Rect(frame * cell, row * cell, cell, cell)).copy()
         return assets
 
     @staticmethod
@@ -134,14 +149,16 @@ class FlatSokobanApp:
         key = name, size
         sprite = self.scale_cache.get(key)
         if sprite is None:
-            sprite = pygame.transform.smoothscale(self.assets[name], (size, size))
+            # Character frames keep crisp edges; smoothscale softens tiny details.
+            scaler = pygame.transform.scale if name.startswith("walk_") else pygame.transform.smoothscale
+            sprite = scaler(self.assets[name], (size, size))
             self.scale_cache[key] = sprite
         return sprite
 
-    def _player(self, size: int) -> pygame.Surface:
-        # Never rotate the whole sprite: a 180-degree rotation puts the
-        # character's head at the bottom of its cell.
-        return self._asset(f"player_{self.facing}", size)
+    def _player(self, size: int, walk_frame: int | None = None) -> pygame.Surface:
+        """Idle uses phase zero; motion uses directional stepping frames."""
+        frame = 0 if walk_frame is None else walk_frame
+        return self._asset(f"walk_{self.facing}_{frame}", size)
 
     @staticmethod
     def _cell_origin(gx: float, gy: float, x0: int, y0: int,
@@ -150,8 +167,10 @@ class FlatSokobanApp:
         return round(x0 + gx * tile), round(y0 + gy * tile)
 
     def _blit_cell(self, name: str, gx: float, gy: float,
-                   x0: int, y0: int, tile: int) -> None:
-        sprite = self._player(tile) if name == "player" else self._asset(name, tile)
+                   x0: int, y0: int, tile: int,
+                   walk_frame: int | None = None) -> None:
+        sprite = (self._player(tile, walk_frame) if name == "player"
+                  else self._asset(name, tile))
         self.canvas.blit(sprite, self._cell_origin(gx, gy, x0, y0, tile))
 
     def _draw_floor_cell(self, gx: int, gy: int, x0: int, y0: int,
@@ -388,7 +407,11 @@ class FlatSokobanApp:
         if anim and pct < 1:
             px = anim.source[0] + (anim.target[0] - anim.source[0]) * eased
             py = anim.source[1] + (anim.target[1] - anim.source[1]) * eased
-        self._blit_cell("player", px, py, x0, y0, tile)
+        # Advance the walk phases using the same 180ms movement interpolation.
+        # No sprite rotation or secondary origin shifts.
+        walk_frame = min(3, int(pct * 4)) if anim and pct < 1.0 else None
+        self._blit_cell("player", px, py, x0, y0, tile,
+                        walk_frame=walk_frame)
 
     def _victory_ready(self) -> bool:
         """Show success only after the last box has finished animating."""

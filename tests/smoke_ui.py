@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 import pygame  # noqa: E402
 from sokoban import Game  # noqa: E402
-from sokoban_flat import DESIGN_H, DESIGN_W, FlatSokobanApp  # noqa: E402
+from sokoban_flat import DESIGN_H, DESIGN_W, MOVE_MS, MoveAnimation, FlatSokobanApp  # noqa: E402
 
 SOLUTION = "DRDDRRRRRLLULURRRLLURR"
 
@@ -34,6 +34,18 @@ def exercise() -> None:
         assert all(f"player_{direction}" in app.assets
                    for direction in ("up", "down", "left", "right"))
         assert app.facing == "up"
+        # Every frame shares the same 128px canvas and transparent margins.
+        for direction in ("up", "down", "left", "right"):
+            app.facing = direction
+            for frame in range(4):
+                sprite = app.assets[f"walk_{direction}_{frame}"]
+                assert sprite.get_size() == (128, 128)
+                assert sprite.get_at((0, 0)).a == 0
+                assert app._player(78, frame).get_size() == (78, 78)
+            assert app._player(78) is app._asset(f"walk_{direction}_0", 78)
+            assert (pygame.image.tostring(app._player(78, 1), "RGBA") !=
+                    pygame.image.tostring(app._player(78, 3), "RGBA"))
+        app.facing = "up"
 
 
         for width, height in ((1280, 854), (1536, 1024)):
@@ -90,8 +102,16 @@ def exercise() -> None:
         app._move(0, 1)
         assert app.facing == "down"
         assert app.game.player == (4, 5)
-        app.animation = None
+        assert app.animation is not None
+        for index, fraction in enumerate((0.08, 0.34, 0.60, 0.86)):
+            app.animation.start = pygame.time.get_ticks() - int(MOVE_MS * fraction)
+            app._draw()
+            assert app.animation is not None
+            pygame.image.save(app.screen, str(screenshots / f"sokoban-walk-down-{index}.png"))
+        app.animation.start = pygame.time.get_ticks() - MOVE_MS - 5
         app._draw()
+        assert app.animation is None
+        assert app._player(78) is app._asset("walk_down_0", 78)
         pygame.image.save(app.screen, str(screenshots / "sokoban-facing-down.png"))
         app._restart()
         assert app.facing == "up"
@@ -106,7 +126,6 @@ def exercise() -> None:
         # The rules mark the level solved before the final box reaches its
         # destination on screen. Keep the modal and Next button unavailable
         # until the visual transition has finished.
-        from sokoban_flat import MOVE_MS, MoveAnimation
         app.animation = MoveAnimation(
             source=app.game.player, target=app.game.player,
             start=pygame.time.get_ticks(),
