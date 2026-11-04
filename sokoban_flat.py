@@ -332,6 +332,28 @@ class FlatSokobanApp:
             west = (gx - 1, gy) in walls
             east = (gx + 1, gy) in walls
             radius = max(5, round(tile * 0.095))
+            # Interior wall corners belong to the beige floor grid, not to
+            # the navy scene background. Paint grout only at corners wholly
+            # enclosed by the level; exterior wall corners remain navy.
+            # This avoids both black corner squares on isolated walls and
+            # beige leaks along the outer silhouette.
+            cols, height = len(rows[0]), len(rows)
+            corner_specs = (
+                ((-1, 0), (0, -1), (-1, -1), 0, 0),
+                ((1, 0), (0, -1), (1, -1), tile - radius, 0),
+                ((-1, 0), (0, 1), (-1, 1), 0, tile - radius),
+                ((1, 0), (0, 1), (1, 1), tile - radius, tile - radius),
+            )
+            for side_a, side_b, diagonal, ox, oy in corner_specs:
+                neighbors = tuple((gx + dx, gy + dy)
+                                  for dx, dy in (side_a, side_b, diagonal))
+                if all(0 <= nx < cols and 0 <= ny < height
+                       and (nx, ny) not in outside for nx, ny in neighbors):
+                    if any(pos not in walls for pos in neighbors):
+                        pygame.draw.rect(
+                            self.canvas, FLOOR_GROUT,
+                            pygame.Rect(left + ox, top + oy, radius, radius),
+                        )
             pygame.draw.rect(
                 self.canvas, (60, 99, 156),
                 pygame.Rect(left, top, tile, tile),
