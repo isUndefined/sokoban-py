@@ -5,6 +5,7 @@ approved design reference; no isometric or perspective renderer.
 """
 from __future__ import annotations
 
+import io
 import math
 from collections import deque
 from dataclasses import dataclass
@@ -79,17 +80,22 @@ class FlatSokobanApp:
         self.canvas = pygame.Surface((DESIGN_W, DESIGN_H)).convert()
         self.background = self._make_background()
         self.assets = self._load_assets()
+        logo = pygame.image.load(str(ASSETS / "sokoban_logo.png")).convert_alpha()
+        logo = logo.subsurface(logo.get_bounding_rect(min_alpha=16)).copy()
+        logo_scale = min(320 / logo.get_width(), 76 / logo.get_height())
+        self.logo = pygame.transform.smoothscale(
+            logo, (round(logo.get_width() * logo_scale), round(logo.get_height() * logo_scale)))
+        plaque = pygame.image.load(str(ASSETS / "wooden_plaque.png")).convert_alpha()
+        self.header_plaque = self._fit_plaque(plaque, (780, 112))
+        self.footer_plaque = self._fit_plaque(plaque, (1150, 115))
         self.scale_cache: dict[tuple[str, int], pygame.Surface] = {}
+        self.action_icon_cache: dict[tuple[str, tuple[int, int, int]], pygame.Surface] = {}
         self.facing = "up"  # sprite direction, never rotate a top-down character
-        # One font family and one text hierarchy across HUD, buttons, and menus.
-        ui_font = "liberationsans"
-        self.fonts = {
-            "brand": pygame.font.SysFont(ui_font, 49, bold=True),
-            "big": pygame.font.SysFont(ui_font, 32, bold=True),
-            "medium": pygame.font.SysFont(ui_font, 27, bold=True),
-            "small": pygame.font.SysFont(ui_font, 22),
-            "mini": pygame.font.SysFont(ui_font, 19),
-        }
+        font_path = str(Path(__file__).resolve().parent / "assets" / "fonts" / "DejaVuSans-Bold.ttf")
+        self.fonts = {name: pygame.font.Font(font_path, size) for name, size in (
+            ("brand", 46), ("big", 30), ("medium", 25),
+            ("small", 20), ("mini", 18),
+        )}
         self.game = Game(level_index=start_level)
         self.running = True
         self.buttons: list[Button] = []
@@ -104,6 +110,29 @@ class FlatSokobanApp:
         self.toast = ""
         self.toast_until = 0
         pygame.key.set_repeat()  # Disable OS-repeat, which drops events mid-animation.
+
+    @staticmethod
+    def _fit_plaque(source: pygame.Surface, size: tuple[int, int]) -> pygame.Surface:
+        """Keep the carved ends and central ornament proportional as the panel widens."""
+        width, height = size
+        scaled_width = round(source.get_width() * height / source.get_height())
+        artwork = pygame.transform.smoothscale(source, (scaled_width, height))
+        if width <= scaled_width:
+            return pygame.transform.smoothscale(source, size)
+        left_cut, right_cut = scaled_width // 4, scaled_width * 3 // 4
+        extra_left = (width - scaled_width) // 2
+        extra_right = width - scaled_width - extra_left
+        result = pygame.Surface(size, pygame.SRCALPHA)
+        result.blit(artwork, (0, 0), (0, 0, left_cut, height))
+        for cut, extra, x in ((left_cut, extra_left, left_cut),
+                              (right_cut, extra_right, right_cut + extra_left)):
+            strip = artwork.subsurface((cut, 0, 1, height))
+            result.blit(pygame.transform.scale(strip, (extra, height)), (x, 0))
+        result.blit(artwork, (left_cut + extra_left, 0),
+                    (left_cut, 0, right_cut - left_cut, height))
+        result.blit(artwork, (right_cut + extra_left + extra_right, 0),
+                    (right_cut, 0, scaled_width - right_cut, height))
+        return result
 
     def _load_assets(self) -> dict[str, pygame.Surface]:
         """Load the approved atlas plus four independently oriented character views."""
@@ -159,59 +188,28 @@ class FlatSokobanApp:
         return assets
 
     @staticmethod
-    @staticmethod
     def _make_background() -> pygame.Surface:
-        """Dark atmosphere framing the existing board without touching tiles."""
+        """Build the navy backdrop and center the warehouse illustration behind the board."""
         small = pygame.Surface((192, 128))
         for y in range(128):
             for x in range(192):
-                dx, dy = (x - 96) / 128, (y - 52) / 114
-                glow = max(0, 1 - dx * dx - dy * dy) ** 2
-                small.set_at((x, y), (
-                    round(6 + 8 * glow), round(21 + 16 * glow),
-                    round(44 + 32 * glow)))
-        backdrop = pygame.transform.smoothscale(small, (DESIGN_W, DESIGN_H))
-        detail = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
-        # Quiet layered silhouettes only in the outside margins.
-        shapes = (
-            ([(0, 180), (64, 147), (124, 190), (154, 266), (84, 308), (0, 294)],
-             (36, 72, 105, 42)),
-            ([(0, 340), (74, 300), (133, 371), (192, 425), (122, 500), (0, 476)],
-             (17, 47, 83, 76)),
-            ([(0, 715), (88, 656), (176, 712), (158, 826), (82, 867), (0, 820)],
-             (30, 67, 101, 48)),
-            ([(1536, 188), (1474, 154), (1390, 210), (1364, 276),
-              (1452, 310), (1536, 290)], (38, 75, 113, 39)),
-            ([(1536, 395), (1466, 348), (1408, 418), (1360, 473),
-              (1442, 520), (1536, 494)], (18, 48, 83, 72)),
-            ([(1536, 721), (1478, 678), (1390, 744), (1376, 847),
-              (1466, 866), (1536, 824)], (32, 72, 110, 45)),
-        )
-        for points, color in shapes:
-            pygame.draw.polygon(detail, color, points)
-        # Small warm lantern accent on the far left, away from play cells.
-        for radius, alpha in ((113, 5), (83, 8), (55, 14)):
-            pygame.draw.circle(detail, (255, 175, 73, alpha), (113, 330), radius)
-        pygame.draw.line(detail, (80, 111, 144, 90),
-                         (113, 222), (113, 297), 4)
-        pygame.draw.rect(detail, (40, 60, 79, 190),
-                         pygame.Rect(92, 298, 42, 59), border_radius=9)
-        pygame.draw.rect(detail, (232, 161, 68, 150),
-                         pygame.Rect(99, 308, 28, 38), border_radius=6)
-        pygame.draw.line(detail, (42, 60, 73, 205), (112, 304), (112, 348), 3)
-        # Nearly monochrome cargo silhouettes on the right.
-        for cx, cy, width in ((1440, 752, 94), (1367, 824, 100)):
-            crate = pygame.Rect(cx, cy, width, width)
-            pygame.draw.rect(detail, (51, 88, 122, 58),
-                             crate, border_radius=5)
-            pygame.draw.rect(detail, (84, 127, 161, 58), crate,
-                             3, border_radius=5)
-            pygame.draw.line(detail, (92, 138, 172, 46),
-                             crate.topleft, crate.bottomright, 3)
-            pygame.draw.line(detail, (92, 138, 172, 46),
-                             crate.topright, crate.bottomleft, 3)
-        backdrop.blit(detail, (0, 0))
-        return backdrop
+                dx = (x - 96) / 120
+                dy = (y - 51) / 105
+                glow = max(0, 1 - (dx*dx + dy*dy)) ** 2
+                small.set_at((x, y),
+                             (round(7 + 6 * glow),
+                              round(23 + 15 * glow),
+                              round(48 + 28 * glow)))
+        background = pygame.transform.smoothscale(small, (DESIGN_W, DESIGN_H))
+        artwork = pygame.image.load(str(ASSETS / "warehouse_background.png")).convert()
+        area = pygame.Rect(0, 118, DESIGN_W, 784)
+        scale = max(area.width / artwork.get_width(), area.height / artwork.get_height())
+        artwork = pygame.transform.smoothscale(
+            artwork, (round(artwork.get_width() * scale), round(artwork.get_height() * scale)))
+        background.set_clip(area)
+        background.blit(artwork, artwork.get_rect(center=area.center))
+        background.set_clip(None)
+        return background
 
     def _asset(self, name: str, size: int) -> pygame.Surface:
         key = name, size
@@ -270,68 +268,79 @@ class FlatSokobanApp:
         self.canvas.blit(surface, rect)
 
     def _panel(self, rect: pygame.Rect, bright: bool = False) -> None:
-        """Calm common surface for modal dialogs."""
-        pygame.draw.rect(self.canvas, (3, 11, 27),
-                         rect.move(0, 7), border_radius=19)
-        pygame.draw.rect(self.canvas, (18, 40, 68) if bright else (13, 32, 57),
-                         rect, border_radius=19)
-        pygame.draw.rect(self.canvas, (66, 107, 149),
-                         rect, 2, border_radius=19)
-        pygame.draw.line(self.canvas, (92, 140, 181),
-                         (rect.left + 24, rect.top + 3),
-                         (rect.right - 24, rect.top + 3), 1)
+        pygame.draw.rect(self.canvas, (8, 10, 18), rect.move(0, 8), border_radius=20)
+        pygame.draw.rect(self.canvas, (96, 57, 33), rect, border_radius=20)
+        pygame.draw.rect(self.canvas, (188, 127, 64), rect, 2, border_radius=20)
+        inner = rect.inflate(-14, -14)
+        pygame.draw.rect(self.canvas, (27, 42, 48) if bright else (24, 39, 45), inner, border_radius=14)
+        pygame.draw.rect(self.canvas, (112, 90, 61), inner, 1, border_radius=14)
+        for x in (rect.x + 18, rect.right - 18):
+            for y in (rect.y + 18, rect.bottom - 18):
+                pygame.draw.circle(self.canvas, (227, 177, 100), (x, y), 3)
 
-    def _button(self, rect: pygame.Rect, label: str, action: str,
-                enabled: bool = True, variant: str = "blue",
-                icon: str = "") -> None:
-        """Unified interactive controls, distinct from unboxed information."""
-        point = self._logical_point(pygame.mouse.get_pos())
-        hover = enabled and point is not None and rect.collidepoint(point)
-        palette = {
-            "blue": ((29, 65, 105), (77, 126, 175)),
-            "gold": ((122, 83, 29), (227, 168, 77)),
-            "green": ((37, 111, 75), (108, 204, 135)),
-            "gray": ((37, 62, 91), (92, 124, 155)),
+    def _button(self, rect: pygame.Rect, label: str, action: str, enabled: bool = True,
+                variant: str = "blue", icon: str = "") -> None:
+        mouse = self._logical_point(pygame.mouse.get_pos())
+        hover = enabled and mouse is not None and rect.collidepoint(mouse)
+        if icon and action in ("undo", "restart", "next"):
+            # Low-profile toolbar actions with a separate keyboard keycap.
+            button = rect.inflate(-8, -14)
+            if hover:
+                highlight = rect.inflate(-20, -36)
+                pygame.draw.rect(self.canvas, (48, 63, 78), highlight, border_radius=8)
+            ink = (244, 235, 219) if enabled else (126, 133, 139)
+            icon_center = (button.x + 32, button.centery)
+            pygame.draw.circle(self.canvas, (58, 75, 85) if enabled else (37, 48, 57), icon_center, 24)
+            self._action_icon(icon, icon_center, (238, 198, 132) if enabled else (112, 120, 123))
+            hint = {"undo": "Z", "restart": "R", "next": "N"}[action]
+            label_surface = self.fonts["mini"].render(label, True, ink)
+            self.canvas.blit(label_surface, label_surface.get_rect(midleft=(button.x + 65, button.centery)))
+            key_rect = pygame.Rect(button.right - 42, button.centery - 15, 28, 30)
+            pygame.draw.rect(self.canvas, (20, 30, 42), key_rect, border_radius=4)
+            pygame.draw.rect(self.canvas, (90, 106, 112) if enabled else (57, 68, 72), key_rect, 1, border_radius=4)
+            self._text(hint, "mini", key_rect.center, ink, center=True)
+            self.buttons.append(Button(rect, action, enabled))
+            return
+        colors = {
+            "blue": ((47, 75, 77), (67, 107, 106), (112, 145, 133)),
+            "gold": ((151, 94, 43), (210, 150, 70), (235, 186, 111)),
+            "green": ((27, 129, 66), (53, 167, 82), (128, 218, 139)),
+            "gray": ((49, 66, 68), (68, 85, 83), (105, 129, 119)),
         }
-        surface, border = palette["gray" if not enabled else variant]
-        if not enabled:
-            surface, border = (33, 47, 67), (70, 87, 106)
-        elif hover:
-            surface = tuple(min(255, component + 13) for component in surface)
-        pygame.draw.rect(self.canvas, (3, 12, 25),
-                         rect.move(0, 4), border_radius=14)
-        pygame.draw.rect(self.canvas, surface, rect, border_radius=14)
-        pygame.draw.rect(self.canvas, border, rect, 2, border_radius=14)
-        pygame.draw.line(self.canvas,
-                         tuple(min(255, component + 18) for component in border),
-                         (rect.x + 16, rect.y + 4),
-                         (rect.right - 16, rect.y + 4), 1)
-
-        foreground = WHITE if enabled else (151, 169, 187)
-        if icon and not label:
-            self._icon(icon, rect.center, foreground)
-        else:
-            shortcut = {"undo": "Z", "restart": "R", "next": "N"}.get(action)
-            show_key = shortcut is not None and rect.width >= 300
-            icon_slot = 46 if icon else 0
-            key_slot = 35 if show_key else 0
-            available = rect.width - icon_slot - key_slot - 36
-            font_name = next(
-                (name for name in ("medium", "small", "mini")
-                 if self.fonts[name].size(label)[0] <= available),
-                "mini",
-            )
-            if icon:
-                self._icon(icon, (rect.x + 37, rect.centery), foreground)
-            self._text(label, font_name,
-                       (rect.centerx + (icon_slot - key_slot) // 2,
-                        rect.centery - 1), foreground, center=True)
-            if show_key:
-                self._text(shortcut, "mini",
-                           (rect.right - 27, rect.centery - 1),
-                           (171, 198, 222) if enabled else (122, 144, 166),
-                           center=True)
+        dark, base, border = colors[variant if enabled else "gray"]
+        pygame.draw.rect(self.canvas, (3, 10, 23), rect.move(0, 5), border_radius=18)
+        fill = tuple(min(255, x + (16 if hover else 0)) for x in dark)
+        pygame.draw.rect(self.canvas, fill, rect, border_radius=18)
+        pygame.draw.rect(self.canvas, border, rect, 2, border_radius=18)
+        text_color = WHITE if enabled else (164, 185, 210)
+        # The icon and caption have independent slots: captions never overlap icons
+        # and must fit inside their buttons at every window size.
+        icon_space = 72 if icon else 0
+        usable = rect.width - icon_space - 30
+        font_name = next((name for name in ("medium", "small", "mini")
+                          if self.fonts[name].size(label)[0] <= usable), "mini")
+        if icon:
+            pygame.draw.circle(self.canvas, base, (rect.x + 38, rect.centery), 25)
+            self._icon(icon, (rect.x + 38, rect.centery), text_color)
+        center_x = rect.x + icon_space + (rect.width - icon_space) // 2
+        self._text(label, font_name, (center_x, rect.centery - 2), text_color, center=True)
         self.buttons.append(Button(rect, action, enabled))
+
+    def _action_icon(self, kind: str, center: tuple[int, int], color: tuple[int, int, int]) -> None:
+        """Load Lucide SVG icons at high resolution and cache the tinted result."""
+        key = (kind, color)
+        sprite = self.action_icon_cache.get(key)
+        if sprite is None:
+            filename = {"undo": "undo-2", "restart": "rotate-ccw",
+                        "next": "arrow-right-to-line"}[kind]
+            path = Path(__file__).resolve().parent / "assets" / "icons" / "lucide" / f"{filename}.svg"
+            svg = path.read_text(encoding="utf-8")
+            svg = svg.replace("currentColor", "#{:02x}{:02x}{:02x}".format(*color))
+            svg = svg.replace('width="24"', 'width="128"').replace('height="24"', 'height="128"')
+            image = pygame.image.load(io.BytesIO(svg.encode("utf-8")), "icon.svg").convert_alpha()
+            sprite = pygame.transform.smoothscale(image, (32, 32))
+            self.action_icon_cache[key] = sprite
+        self.canvas.blit(sprite, sprite.get_rect(center=center))
 
     def _icon(self, kind: str, center: tuple[int, int], c: tuple[int, int, int]) -> None:
         x, y = center
@@ -358,32 +367,29 @@ class FlatSokobanApp:
             pygame.draw.circle(self.canvas,c,(x+14,y-3),4)
 
     def _header(self) -> None:
-        """Consistent HUD: labels are information, only the menu is clickable."""
-        pygame.draw.rect(self.canvas, (8, 25, 47),
-                         pygame.Rect(0, 0, DESIGN_W, 110))
-        pygame.draw.line(self.canvas, (45, 84, 122),
-                         (0, 108), (DESIGN_W, 108), 2)
-        pygame.draw.line(self.canvas, (222, 164, 69),
-                         (44, 108), (347, 108), 2)
-
-        self.canvas.blit(self._asset("crate", 65), (38, 22))
-        self._text("Sokoban", "brand", (118, 20))
-
-        self._text("УРОВЕНЬ", "mini", (555, 24), MUTED)
-        self._text(f"{self.game.level_index + 1} / {len(self.game.levels)}",
-                   "big", (554, 49))
-
-        self._icon("footsteps", (865, 58), (178, 204, 224))
-        self._text("ХОДЫ", "mini", (907, 24), MUTED)
-        self._text(str(self.game.moves), "big", (906, 50))
-
-        self._icon("box", (1109, 58), (221, 169, 82))
-        self._text("ЯЩИКИ НА ЦЕЛИ", "mini", (1152, 24), MUTED)
-        self._text(f"{self.game.boxes_on_goals} / {len(self.game.boxes)}",
-                   "big", (1150, 50))
-
-        self._button(pygame.Rect(1413, 23, 72, 64), "",
-                     "menu", icon="menu")
+        """Separated title, status plaque and level selector."""
+        self.canvas.blit(self.logo, self.logo.get_rect(midleft=(35, 52)))
+        plaque = pygame.Rect(400, 17, 736, 70)
+        self.canvas.blit(self.header_plaque, (378, -4))
+        for x in (650, 865):
+            pygame.draw.line(self.canvas, (80, 96, 96), (x, 31), (x, 73), 1)
+        level_badge = pygame.Rect(413, 27, 50, 50)
+        pygame.draw.rect(self.canvas, (164, 111, 53), level_badge, border_radius=10)
+        self._text(str(self.game.level_index + 1), "medium", level_badge.center,
+                   (255, 241, 211), center=True)
+        self._text("LEVEL", "mini", (479, 27), (175, 184, 171))
+        self._text(f"{self.game.level_index + 1} / {len(self.game.levels)}", "small", (479, 53), (255, 235, 198))
+        for x, label, value in ((675, "MOVES", str(self.game.moves)),
+                                 (890, "CRATES", f"{self.game.boxes_on_goals} / {len(self.game.boxes)}")):
+            self._text(label, "mini", (x, 27), (175, 184, 171))
+            self._text(value, "small", (x, 53), (255, 235, 198))
+        menu = pygame.Rect(1260, 24, 225, 55)
+        mouse = self._logical_point(pygame.mouse.get_pos())
+        fill = (167, 113, 61) if mouse and menu.collidepoint(mouse) else (123, 79, 44)
+        pygame.draw.rect(self.canvas, fill, menu, border_radius=9)
+        pygame.draw.rect(self.canvas, (217, 163, 94), menu, 2, border_radius=9)
+        self._text("CHOOSE LEVEL", "mini", menu.center, (255, 237, 207), center=True)
+        self.buttons.append(Button(menu, "menu"))
 
     def _board_geometry(self) -> tuple[int, int, int]:
         rows = self.game.level.rows
@@ -551,20 +557,27 @@ class FlatSokobanApp:
                 and self.goal_glow is None)
 
     def _footer(self) -> None:
-        """Unified bottom toolbar, away from the unchanged 78px board."""
-        pygame.draw.rect(self.canvas, (7, 22, 43),
-                         pygame.Rect(0, 911, DESIGN_W, DESIGN_H - 911))
-        pygame.draw.line(self.canvas, (38, 76, 115),
-                         (0, 911), (DESIGN_W, 911), 2)
-        y = 935
-        self._button(pygame.Rect(224, y, 350, 66), "Отменить", "undo",
+        y = 927
+        tray = pygame.Rect(214, 921, 1108, 88)
+        self.canvas.blit(self.footer_plaque, (193, 907))
+        for x in (584, 953):
+            pygame.draw.line(self.canvas, (75, 91, 91), (x, 940), (x, 990), 1)
+        # Three equal-width controls centered beneath the board.
+        self._button(pygame.Rect(224, y, 350, 76), "Undo", "undo",
                      variant="blue", icon="undo")
-        self._button(pygame.Rect(593, y, 350, 66), "Заново", "restart",
+        self._button(pygame.Rect(593, y, 350, 76), "Restart", "restart",
                      variant="blue", icon="restart")
-        can_advance = (self._victory_ready()
-                       and self.game.level_index < len(self.game.levels) - 1)
-        self._button(pygame.Rect(962, y, 350, 66), "Следующий уровень", "next",
-                     enabled=can_advance, variant="green", icon="next")
+        can_advance = self._victory_ready() and self.game.level_index < len(self.game.levels) - 1
+        self._button(pygame.Rect(962, y, 350, 76), "Next level", "next",
+                     enabled=can_advance, variant="gold", icon="next")
+
+    def _victory_progress(self, now: int) -> float:
+        """A single 280 ms reveal, starting only after the final box/glow."""
+        if self.victory_started_at is None:
+            self.victory_started_at = now
+        elapsed = max(0, now - self.victory_started_at)
+        linear = min(1.0, elapsed / VICTORY_REVEAL_MS)
+        return linear * linear * (3 - 2 * linear)
 
     def _win_overlay(self, progress: float) -> None:
         """Fade in the victory modal without altering any game artwork."""
@@ -581,36 +594,39 @@ class FlatSokobanApp:
             panel = pygame.Rect(504, 294, 528, 416)
             self._panel(panel, bright=True)
 
-            # A restrained success emblem, using vector primitives only.
+            # Warm medal matches the brass and lanterns in the warehouse.
             center = (768, 358)
-            pygame.draw.circle(self.canvas, (26, 83, 66), center, 36)
-            pygame.draw.circle(self.canvas, (78, 195, 111), center, 36, 3)
+            pygame.draw.circle(self.canvas, (116, 71, 39), center, 38)
+            pygame.draw.circle(self.canvas, (230, 174, 91), center, 36, 3)
+            pygame.draw.circle(self.canvas, (165, 110, 52), center, 30)
             pygame.draw.lines(
-                self.canvas, (197, 255, 205), False,
+                self.canvas, (255, 236, 190), False,
                 [(754, 358), (764, 369), (783, 346)], 6)
+            for x in (704, 832):
+                pygame.draw.circle(self.canvas, (232, 185, 112), (x, 358), 3)
 
-            self._text("УРОВЕНЬ ПРОЙДЕН!", "big",
+            self._text("LEVEL COMPLETE!", "big",
                        (768, 425), (255, 211, 102), center=True)
             last_level = self.game.level_index == len(self.game.levels) - 1
-            note = ("Все уровни завершены" if last_level else
-                    f"Уровень {self.game.level_index + 1} из {len(self.game.levels)}")
+            note = ("All levels complete" if last_level else
+                    f"Level {self.game.level_index + 1} of {len(self.game.levels)}")
             self._text(note, "small", (768, 471), MUTED, center=True)
 
-            pygame.draw.line(self.canvas, (69, 116, 172),
+            pygame.draw.line(self.canvas, (139, 112, 74),
                              (552, 496), (984, 496), 2)
-            self._text(f"Ходов: {self.game.moves}", "medium",
+            self._text(f"Moves: {self.game.moves}", "medium",
                        (768, 528), center=True)
             self._text(
-                f"Ящиков на местах: {self.game.boxes_on_goals} / {len(self.game.goals)}",
+                f"Crates on goals: {self.game.boxes_on_goals} / {len(self.game.goals)}",
                 "small", (768, 568), center=True)
 
             # Both actions are equal-sized and stay at fixed coordinates.
             primary_action = "menu" if last_level else "next"
-            primary_label = "Меню уровней" if last_level else "Следующий уровень"
+            primary_label = "Level select" if last_level else "Next level"
             self._button(pygame.Rect(527, 620, 237, 60),
                          primary_label, primary_action, variant="gold")
             self._button(pygame.Rect(773, 620, 237, 60),
-                         "Заново", "restart", variant="gray")
+                         "Restart", "restart", variant="gray")
         finally:
             self.canvas = original
 
@@ -619,27 +635,36 @@ class FlatSokobanApp:
         self.canvas.blit(modal, (0, round(10 * (1 - progress))))
 
     def _menu_overlay(self) -> None:
-        """Level selector in the same visual style as all other controls."""
         if not self.menu_open:
             return
         overlay = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
-        overlay.fill((4, 14, 30, 201))
-        self.canvas.blit(overlay, (0, 0))
-        self.buttons = []
-        card = pygame.Rect(508, 247, 520, 525)
+        overlay.fill((2, 12, 31, 190))
+        self.canvas.blit(overlay,(0,0))
+        self.buttons = []  # Modal: only the menu receives clicks.
+        card = pygame.Rect(508, 253, 520, 514)
         self._panel(card, bright=True)
-        self._text("Уровни", "big", (card.centerx, 300), center=True)
-        self._text("Выберите уровень", "small",
-                   (card.centerx, 341), MUTED, center=True)
+        self._text("CHOOSE A LEVEL", "big", (card.centerx, 306), (255, 235, 198), center=True)
+        self._text("Choose your next puzzle", "mini", (card.centerx, 341), (164, 181, 178), center=True)
+        mouse = self._logical_point(pygame.mouse.get_pos())
         for idx, level in enumerate(self.game.levels):
-            current = idx == self.game.level_index
-            self._button(
-                pygame.Rect(card.centerx - 181, 376 + idx * 78, 362, 62),
-                f"Уровень {idx + 1}", f"level:{idx}",
-                variant="gold" if current else "blue",
-            )
-        self._button(pygame.Rect(card.centerx - 140, 660, 280, 64),
-                     "Продолжить", "close", variant="gray")
+            rect = pygame.Rect(card.centerx - 181, 367 + idx * 81, 362, 64)
+            selected = idx == self.game.level_index
+            hovered = mouse is not None and rect.collidepoint(mouse)
+            fill = (87, 78, 56) if selected else (55, 75, 77) if hovered else (38, 58, 62)
+            pygame.draw.rect(self.canvas, fill, rect, border_radius=10)
+            pygame.draw.rect(self.canvas, (188, 147, 87) if selected else (83, 109, 106), rect, 2, border_radius=10)
+            badge = pygame.Rect(rect.x + 10, rect.y + 10, 44, 44)
+            pygame.draw.rect(self.canvas, (151, 104, 53) if selected else (63, 87, 87), badge, border_radius=8)
+            self._text(str(idx + 1), "small", badge.center, (255, 239, 210), center=True)
+            self._text(f"Level {idx + 1}", "small", (rect.x + 70, rect.y + 19), (255, 239, 210))
+            if selected:
+                pygame.draw.circle(self.canvas, (226, 180, 108), (rect.right - 24, rect.centery), 6)
+            self.buttons.append(Button(rect, f"level:{idx}"))
+        close = pygame.Rect(card.centerx - 140, 653, 280, 64)
+        pygame.draw.rect(self.canvas, (50, 68, 71), close, border_radius=10)
+        pygame.draw.rect(self.canvas, (100, 123, 119), close, 1, border_radius=10)
+        self._text("Continue", "small", close.center, (233, 232, 213), center=True)
+        self.buttons.append(Button(close, "close"))
 
     def _draw(self) -> None:
         self.canvas.blit(self.background, (0,0))
@@ -739,7 +764,7 @@ class FlatSokobanApp:
         self.animation = None
         self.goal_glow = None
         if not self.game.undo():
-            self._show("Нет ходов для отмены")
+            self._show("Nothing to undo")
 
     def _restart(self) -> None:
         self.victory_started_at = None

@@ -1,31 +1,32 @@
-# Locked visual concept — Sokoban: The Lost Warehouse v1.0
+# Sokoban design system
 
-This is the stable visual contract for future asset generations and gameplay changes.
+The board reference is `img.png`. The current header and controls use the updated design described below. Keep the game clear, friendly and consistent with this top-down 2D style when adding levels or assets.
 
-## Composition (1440 × 960 virtual canvas)
-- Header: logo and game title at upper left, settings at upper right.
-- Game board: central-left dominant isometric stone warehouse diorama.
-- HUD: permanently fixed right panel with level navigation, moves, best score, progress, undo/restart/next.
-- Hint: bottom-left overlay.
-- Victory: modal centred over the board, with three golden stars and next/retry/levels actions.
+## Composition
 
-## Art direction
-- Night-time fantasy warehouse, stylised 2.5D/isometric, warm amber lanterns.
-- Muted navy/purple HUD; creamy text; orange/gold wins and wooden objects; lime-green targets and primary buttons.
-- Rounded, bevelled HUD panels; gentle shadows, not flat wireframe UI.
-- Same camera, shadows, light direction and proportions for every game-world asset.
-- Hero: same red-hoodie boy with backpack in all 4 directions and 4 walk frames each; transparent 4×4 PNG atlas, no black matte.
+- Use a 1536 × 1024 virtual canvas, scaled proportionally and centered in the resizable window.
+- Place the crate logo and **Sokoban** on the left, level and progress counters in a centered status plaque, and the level selector on the right.
+- Center the board beneath the header. Use a square grid with a fixed 78 px logical tile size; center smaller levels without changing tile size.
+- Center three equal-sized controls beneath the board: **Undo**, **Restart**, **Next level**. The next-level control is muted and disabled until the level is complete.
+- The reference shows the normal gameplay state. The level menu and victory dialog are centered overlays; the victory dialog shows the result and next/restart actions, or the level menu on the last level.
 
-## Stable implementation contract
-- `sokoban.py`: pure puzzle rules, independent of presentation.
-- `sokoban_gui.py`: base Pygame events/utilities and launcher.
-- `sokoban_theme.py`: v1.0 locked presentation; centralised colours/layout.
-- `assets/hero_walk.png`: transparent 4×4 atlas (prefer high-resolution original).
-- New levels do not rearrange HUD elements or change style tokens.
-- New art is prepared as individual transparent game objects or tile assets; never use a flattened screenshot as the game scene.
+## Visual language
 
-## Current integration
-- `python sokoban.py` launches `StorybookSokobanApp` from `sokoban_theme.py` by default.
-- The Storybook renderer uses the isometric board, fixed right HUD, tip panel, SVG world assets, and animated 4×4 hero atlas.
-- The headless UI smoke test renders the actual Storybook interface at two window sizes and verifies the victory flow.
-- Best-move progress is stored in `~/.sokoban-py-progress.json`.
+- Frame the board with the illustrated warehouse background in `assets/flat/warehouse_background.png`, and use `assets/flat/sokoban_logo.png` for the logo. The status and action panels use the illustrated wooden frame in `assets/flat/wooden_plaque.png`, with dark inset surfaces and warm accents; keep game pieces clearly visible above the artwork.
+- Draw the floor as warm cream square tiles with beige grout. Walls are muted blue tiles with darker outlines, soft corners and a light inner edge.
+- Make crates warm orange wood with a dark outline and crossed planks. Goals are bright green rounded-square outlines on the floor.
+- Show the small, friendly character from above, facing the direction of travel. Use consistent proportions and transparent directional animation frames.
+- Use the bundled DejaVu Sans Bold throughout, varying size to establish hierarchy. Text is near-white; secondary and disabled text is muted blue-gray. Interface labels are in English.
+- Group footer actions in one low-profile panel, with icons, labels and keyboard shortcut badges. Use a muted disabled state. The controls are drawn in Pygame rather than supplied by the operating system.
+
+## Motion and interaction
+
+- Animate the character and pushed crates between grid cells; keep movement aligned to the grid. Briefly highlight a goal when a crate reaches it.
+- Reveal the victory dialog after the final movement and goal feedback finish. Dialogs own input while open, and disabled or still-appearing controls must not be clickable.
+- Support keyboard movement, undo and restart as well as mouse controls. Keep the same layout and visual tokens across levels.
+
+## Implementation
+
+- `sokoban.py` contains the game rules and starts the graphical launcher; `sokoban_gui.py` launches `FlatSokobanApp` from `sokoban_flat.py`.
+- `sokoban_flat.py` owns the current layout, colors, rendering and interaction. The game uses the separate sprites in `assets/flat/`, including the directional walking atlas `player_walk.png`, and the licensed font in `assets/fonts/`; the screenshot is a reference for the board, not a flattened game scene.
+- `tests/smoke_ui.py` renders the current interface at multiple window sizes and checks interaction, animation and victory flow.
