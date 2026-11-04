@@ -44,6 +44,19 @@ def exercise() -> None:
             assert app._cell_origin(0, 0, x0, y0, tile) == (x0, y0)
             assert app._cell_origin(3, 2, x0, y0, tile) == (
                 x0 + 3 * tile, y0 + 2 * tile)
+            # Floor's visible grout is placed on logical boundaries, not
+            # displaced by seams baked into the sprite image.
+            occupied = app.game.walls | app.game.boxes | app.game.goals | {app.game.player}
+            outside = app._outside_tiles(app.game.level.rows)
+            floor_cells = [(x, y) for y, row in enumerate(app.game.level.rows)
+                           for x in range(len(row)) if (x, y) not in occupied
+                           and (x, y) not in outside]
+            assert floor_cells
+            fx, fy = floor_cells[0]
+            fl, ft = app._cell_origin(fx, fy, x0, y0, tile)
+            from sokoban_flat import FLOOR_GROUT, FLOOR_TILE
+            assert tuple(app.canvas.get_at((fl, ft))[:3]) == FLOOR_GROUT
+            assert tuple(app.canvas.get_at((fl + tile // 2, ft + tile // 2))[:3]) == FLOOR_TILE
             # No floor is drawn behind wall transparency: the wall cell
             # background is blue, never the beige floor.
             wx, wy = min(app.game.walls, key=lambda p: (p[1], p[0]))
