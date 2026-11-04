@@ -332,28 +332,31 @@ class FlatSokobanApp:
             west = (gx - 1, gy) in walls
             east = (gx + 1, gy) in walls
             radius = max(5, round(tile * 0.095))
-            # Interior wall corners belong to the beige floor grid, not to
-            # the navy scene background. Paint grout only at corners wholly
-            # enclosed by the level; exterior wall corners remain navy.
-            # This avoids both black corner squares on isolated walls and
-            # beige leaks along the outer silhouette.
+            # Back the transparent rounded corners of isolated INNER walls
+            # with floor grout, but not any corner touching the exterior.
+            # The atlas wall has ~15% transparent margins. A patch sized to
+            # the backplate radius alone (7 px) leaves visible navy wedges.
+            corner_size = max(2, round(tile * 0.23))
             cols, height = len(rows[0]), len(rows)
             corner_specs = (
                 ((-1, 0), (0, -1), (-1, -1), 0, 0),
-                ((1, 0), (0, -1), (1, -1), tile - radius, 0),
-                ((-1, 0), (0, 1), (-1, 1), 0, tile - radius),
-                ((1, 0), (0, 1), (1, 1), tile - radius, tile - radius),
+                ((1, 0), (0, -1), (1, -1), tile - corner_size, 0),
+                ((-1, 0), (0, 1), (-1, 1), 0, tile - corner_size),
+                ((1, 0), (0, 1), (1, 1),
+                 tile - corner_size, tile - corner_size),
             )
             for side_a, side_b, diagonal, ox, oy in corner_specs:
                 neighbors = tuple((gx + dx, gy + dy)
                                   for dx, dy in (side_a, side_b, diagonal))
-                if all(0 <= nx < cols and 0 <= ny < height
-                       and (nx, ny) not in outside for nx, ny in neighbors):
-                    if any(pos not in walls for pos in neighbors):
-                        pygame.draw.rect(
-                            self.canvas, FLOOR_GROUT,
-                            pygame.Rect(left + ox, top + oy, radius, radius),
-                        )
+                if (all(0 <= nx < cols and 0 <= ny < height
+                        and (nx, ny) not in outside for nx, ny in neighbors)
+                        and all((gx + dx, gy + dy) not in walls
+                                for dx, dy in (side_a, side_b))):
+                    pygame.draw.rect(
+                        self.canvas, FLOOR_GROUT,
+                        pygame.Rect(left + ox, top + oy,
+                                    corner_size, corner_size),
+                    )
             pygame.draw.rect(
                 self.canvas, (60, 99, 156),
                 pygame.Rect(left, top, tile, tile),
