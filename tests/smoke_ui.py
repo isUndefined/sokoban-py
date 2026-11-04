@@ -31,19 +31,51 @@ def exercise() -> None:
         assert app.game.moves == 0
         assert app.game.boxes_on_goals == 0
         assert all(key in app.assets for key in ("wall", "floor", "crate", "goal", "player_up"))
+        assert all(f"player_{direction}" in app.assets
+                   for direction in ("up", "down", "left", "right"))
+        assert app.facing == "up"
+
 
         for width, height in ((1280, 854), (1536, 1024)):
             app.screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
             app._draw()
             assert app._board[2] >= 60
+            x0, y0, tile = app._board
+            assert app._cell_origin(0, 0, x0, y0, tile) == (x0, y0)
+            assert app._cell_origin(3, 2, x0, y0, tile) == (
+                x0 + 3 * tile, y0 + 2 * tile)
+            # No floor is drawn behind wall transparency: the wall cell
+            # background is blue, never the beige floor.
+            wx, wy = min(app.game.walls, key=lambda p: (p[1], p[0]))
+            wall_x, wall_y = app._cell_origin(wx, wy, x0, y0, tile)
+            wall_corner = app.canvas.get_at((wall_x + 1, wall_y + 1))
+            assert wall_corner.b > wall_corner.r
             assert len(app.buttons) == 4
+            footer = [button for button in app.buttons if button.action != "menu"]
+            assert len({button.rect.width for button in footer}) == 1
+            assert len({button.rect.centery for button in footer}) == 1
             assert not next(button for button in app.buttons if button.action == "next").enabled
             pygame.image.save(app.screen, str(screenshots / f"sokoban-{width}x{height}.png"))
 
         app.menu_open = True
         app._draw()
         assert all(btn.action.startswith("level:") or btn.action == "close" for btn in app.buttons)
+        assert len({btn.rect.centerx for btn in app.buttons}) == 1
+        pygame.image.save(app.screen, str(screenshots / "sokoban-level-menu.png"))
         app.menu_open = False
+
+        # No 180-degree rotation when walking down: face is selected from
+        # a separate top-down image, while its head stays at the top.
+        assert app.game.player == (4, 4)
+        app._move(0, 1)
+        assert app.facing == "down"
+        assert app.game.player == (4, 5)
+        app.animation = None
+        app._draw()
+        pygame.image.save(app.screen, str(screenshots / "sokoban-facing-down.png"))
+        app._restart()
+        assert app.facing == "up"
+        assert app.game.player == (4, 4)
 
         game = Game()
         directions = {"U": (0, -1), "D": (0, 1), "L": (-1, 0), "R": (1, 0)}
