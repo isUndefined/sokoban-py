@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT))
 import pygame  # noqa: E402
 from sokoban import Game, Level  # noqa: E402
 from sokoban_flat import (DESIGN_H, DESIGN_W, MOVE_MS, GOAL_GLOW_MS,
-                          GAME_TILE_SIZE, MoveAnimation, FlatSokobanApp)  # noqa: E402
+                          GAME_TILE_SIZE, VICTORY_REVEAL_MS,
+                          MoveAnimation, FlatSokobanApp)  # noqa: E402
 
 SOLUTION = "DRDDRRRRRLLULURRRLLURR"
 
@@ -271,11 +272,68 @@ def exercise() -> None:
         app._draw()
         assert app.animation is None
         assert app._victory_ready()
-        assert any(button.action == "next" and button.enabled
-                   for button in app.buttons)
+        assert app.victory_started_at is not None
+        assert not app.buttons  # Early fade: nothing invisible is clickable.
+        pygame.image.save(app.screen, str(screenshots / "sokoban-victory-start.png"))
+
+        # Half-reveal: the backdrop and modal fade in without opening buttons.
+        app.victory_started_at = pygame.time.get_ticks() - VICTORY_REVEAL_MS // 2
+        app._draw()
+        assert not app.buttons
+        assert app.game.level_index == 0
+        pygame.image.save(app.screen, str(screenshots / "sokoban-victory-fade.png"))
+
+        # Fully visible modal owns input; no HUD click-through is possible.
+        app.victory_started_at = pygame.time.get_ticks() - VICTORY_REVEAL_MS - 10
+        app._draw()
+        assert {button.action for button in app.buttons} == {"next", "restart"}
+        next_button = next(button for button in app.buttons
+                           if button.action == "next")
+        restart_button = next(button for button in app.buttons
+                              if button.action == "restart")
+        assert next_button.enabled and restart_button.enabled
+        assert next_button.rect.size == restart_button.rect.size == (237, 60)
+        first_started = app.victory_started_at
+        app._draw()
+        assert app.victory_started_at == first_started  # No replay per frame.
         pygame.image.save(app.screen, str(screenshots / "sokoban-victory.png"))
-        assert app.game.next_level()
+
+        # Click the real Next button; a new level starts with no stale reveal.
+        app.screen = pygame.display.set_mode((DESIGN_W, DESIGN_H), pygame.RESIZABLE)
+        app._click(next_button.rect.center)
         assert app.game.level_index == 1 and app.game.moves == 0
+        assert app.victory_started_at is None and not app.game.is_won
+
+        # Final level: primary action becomes the level menu; Restart works.
+        app.game = Game(level_index=len(app.game.levels) - 1)
+        app.game.boxes = set(app.game.goals)
+        app.animation = None
+        app.goal_glow = None
+        app._draw()
+        assert not app.buttons
+        app.victory_started_at = pygame.time.get_ticks() - VICTORY_REVEAL_MS - 10
+        app._draw()
+        assert {button.action for button in app.buttons} == {"menu", "restart"}
+        pygame.image.save(
+            app.screen, str(screenshots / "sokoban-all-levels-victory.png"))
+        menu_button = next(button for button in app.buttons
+                           if button.action == "menu")
+        app._click(menu_button.rect.center)
+        assert app.menu_open
+        app._draw()
+        assert all(button.action.startswith("level:") or button.action == "close"
+                   for button in app.buttons)
+        close = next(button for button in app.buttons
+                     if button.action == "close")
+        app._click(close.rect.center)
+        assert not app.menu_open
+        app._draw()
+        restart_button = next(button for button in app.buttons
+                              if button.action == "restart")
+        app._click(restart_button.rect.center)
+        assert app.victory_started_at is None
+        assert not app.game.is_won
+        assert app.game.moves == 0
     finally:
         pygame.quit()
 

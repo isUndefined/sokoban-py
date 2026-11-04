@@ -19,6 +19,7 @@ FPS = 60
 MOVE_MS = 180
 GAME_TILE_SIZE = 78  # Fixed logical pixels in the 1536x1024 design canvas
 GOAL_GLOW_MS = 240
+VICTORY_REVEAL_MS = 280
 
 # Input is driven by physical press/release state instead of SDL key repeat.
 # This keeps held movement synchronized with the 180ms tile animation.
@@ -93,6 +94,7 @@ class FlatSokobanApp:
         self.menu_open = False
         self.animation: MoveAnimation | None = None
         self.goal_glow: GoalGlow | None = None
+        self.victory_started_at: int | None = None
         self._held_directions: dict[int, tuple[int, int]] = {}
         self._queued_direction: tuple[int, int] | None = None
         self._layout = (0.0, 0.0, 1.0)
@@ -491,22 +493,65 @@ class FlatSokobanApp:
         self._button(pygame.Rect(962, y, 350, 76), "Следующий уровень", "next",
                      enabled=can_advance, variant="gold", icon="next")
 
-    def _win_overlay(self) -> None:
-        if not self._victory_ready():
-            return
-        fade = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
-        fade.fill((5, 16, 36, 132))
-        self.canvas.blit(fade, (0,0))
-        panel = pygame.Rect(504, 302, 528, 396)
-        self._panel(panel, bright=True)
-        self._text("УРОВЕНЬ ПРОЙДЕН!", "big", (768, 381), (255, 203, 91), center=True)
-        self._text(f"Ходов: {self.game.moves}  ·  Ящиков: {len(self.game.boxes)}", "medium", (768, 452), center=True)
-        if self.game.level_index == len(self.game.levels) - 1:
-            self._text("Все уровни завершены", "small", (768, 526), center=True)
-            self._button(pygame.Rect(608, 558, 320, 60), "Меню уровней", "menu", variant="blue")
-        else:
-            self._button(pygame.Rect(589, 523, 358, 66), "Следующий уровень", "next", variant="gold")
-        self._button(pygame.Rect(688, 620, 160, 51), "Заново", "restart", variant="gray")
+    def _victory_progress(self, now: int) -> float:
+        """A single 280 ms reveal, starting only after the final box/glow."""
+        if self.victory_started_at is None:
+            self.victory_started_at = now
+        elapsed = max(0, now - self.victory_started_at)
+        linear = min(1.0, elapsed / VICTORY_REVEAL_MS)
+        return linear * linear * (3 - 2 * linear)
+
+    def _win_overlay(self, progress: float) -> None:
+        """Fade in the victory modal without altering any game artwork."""
+        shade = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
+        shade.fill((5, 16, 36, round(150 * progress)))
+        self.canvas.blit(shade, (0, 0))
+
+        # Draw modal contents onto a separate alpha canvas. The base board
+        # remains untouched and the actual button hitboxes never move.
+        original = self.canvas
+        modal = pygame.Surface((DESIGN_W, DESIGN_H), pygame.SRCALPHA)
+        self.canvas = modal
+        try:
+            panel = pygame.Rect(504, 294, 528, 416)
+            self._panel(panel, bright=True)
+
+            # A restrained success emblem, using vector primitives only.
+            center = (768, 358)
+            pygame.draw.circle(self.canvas, (26, 83, 66), center, 36)
+            pygame.draw.circle(self.canvas, (78, 195, 111), center, 36, 3)
+            pygame.draw.lines(
+                self.canvas, (197, 255, 205), False,
+                [(754, 358), (764, 369), (783, 346)], 6)
+
+            self._text("УРОВЕНЬ ПРОЙДЕН!", "big",
+                       (768, 425), (255, 211, 102), center=True)
+            last_level = self.game.level_index == len(self.game.levels) - 1
+            note = ("Все уровни завершены" if last_level else
+                    f"Уровень {self.game.level_index + 1} из {len(self.game.levels)}")
+            self._text(note, "small", (768, 471), MUTED, center=True)
+
+            pygame.draw.line(self.canvas, (69, 116, 172),
+                             (552, 496), (984, 496), 2)
+            self._text(f"Ходов: {self.game.moves}", "medium",
+                       (768, 528), center=True)
+            self._text(
+                f"Ящиков на местах: {self.game.boxes_on_goals} / {len(self.game.goals)}",
+                "small", (768, 568), center=True)
+
+            # Both actions are equal-sized and stay at fixed coordinates.
+            primary_action = "menu" if last_level else "next"
+            primary_label = "Меню уровней" if last_level else "Следующий уровень"
+            self._button(pygame.Rect(527, 620, 237, 60),
+                         primary_label, primary_action, variant="gold")
+            self._button(pygame.Rect(773, 620, 237, 60),
+                         "Заново", "restart", variant="gray")
+        finally:
+            self.canvas = original
+
+        # A subtle 10 px rise accompanies opacity; click targets remain fixed.
+        modal.set_alpha(round(255 * progress))
+        self.canvas.blit(modal, (0, round(10 * (1 - progress))))
 
     def _menu_overlay(self) -> None:
         if not self.menu_open:
@@ -531,8 +576,14 @@ class FlatSokobanApp:
         self._board_layer()
         self._footer()
         if self._victory_ready():
-            self.buttons.clear()  # Victory modal owns input after the final push.
-            self._win_overlay()
+            self.buttons.clear()  # Modal owns input; never click through.
+            progress = self._victory_progress(pygame.time.get_ticks())
+            self._win_overlay(progress)
+            if progress < 1.0:
+                # Invisible/fading controls must not be clickable.
+                self.buttons.clear()
+        else:
+            self.victory_started_at = None
         if self.menu_open:
             self._menu_overlay()
         if self.toast and pygame.time.get_ticks() < self.toast_until and not self.menu_open:
@@ -611,6 +662,7 @@ class FlatSokobanApp:
             self.goal_glow = GoalGlow(target_box, now + MOVE_MS)
 
     def _undo(self) -> None:
+        self.victory_started_at = None
         self._clear_direction_input()
         self.animation = None
         self.goal_glow = None
@@ -618,6 +670,7 @@ class FlatSokobanApp:
             self._show("Нет ходов для отмены")
 
     def _restart(self) -> None:
+        self.victory_started_at = None
         self._clear_direction_input()
         self.game.restart()
         self.animation = None
@@ -626,7 +679,11 @@ class FlatSokobanApp:
         self.menu_open = False
 
     def _next(self) -> None:
-        if self._victory_ready() and self.game.next_level():
+        if (self._victory_ready()
+                and self.victory_started_at is not None
+                and pygame.time.get_ticks() - self.victory_started_at >= VICTORY_REVEAL_MS
+                and self.game.next_level()):
+            self.victory_started_at = None
             self._clear_direction_input()
             self.animation = None
             self.goal_glow = None
@@ -654,6 +711,7 @@ class FlatSokobanApp:
                 self._clear_direction_input()
                 idx = int(action.partition(":")[2])
                 self.game = Game(levels=self.game.levels,level_index=idx)
+                self.victory_started_at = None
                 self.animation = None
                 self.goal_glow = None
                 self.facing = "up"
