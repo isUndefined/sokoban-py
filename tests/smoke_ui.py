@@ -129,6 +129,70 @@ def exercise() -> None:
         assert app.facing == "up"
         assert app.game.player == (4, 4)
 
+        # Input regression: distinct held keys, quick taps while sliding,
+        # release before the animation ends, and Undo/Restart cancellation.
+        control_level = Level("Keyboard controls", (
+            "########",
+            "#@    .#",
+            "#  $   #",
+            "########",
+        ))
+        app.game = Game(levels=(control_level,))
+        def keydown(key: int, char: str = "") -> None:
+            app._key(pygame.event.Event(
+                pygame.KEYDOWN, key=key, unicode=char))
+
+        keydown(pygame.K_RIGHT)
+        assert app.game.player == (2, 1) and app.game.moves == 1
+        keydown(pygame.K_RIGHT)  # Simulated OS-repeat must not move again.
+        assert app.game.moves == 1
+        keydown(pygame.K_DOWN)  # Buffer a quick turn mid-animation.
+        app._release_direction(pygame.K_DOWN)  # Released before it can start.
+        assert app._queued_direction == (0, 1)
+        app.animation.start = pygame.time.get_ticks() - MOVE_MS - 5
+        app._step_held()
+        assert app.game.player == (2, 2) and app.game.moves == 2
+        assert app._queued_direction is None
+        app._release_direction(pygame.K_RIGHT)
+        app.animation.start = pygame.time.get_ticks() - MOVE_MS - 5
+        app._step_held()
+        assert app.game.player == (2, 2) and app.game.moves == 2
+        app._undo()  # Undo is available even during an animation.
+        assert app.game.player == (2, 1) and app.game.moves == 1
+        assert not app._held_directions and app._queued_direction is None
+        app._restart()
+        assert app.game.player == (1, 1) and app.game.moves == 0
+
+        # A held key advances exactly one cell per animation interval.
+        keydown(pygame.K_RIGHT)
+        for expected in ((3, 1), (4, 1)):
+            app.animation.start = pygame.time.get_ticks() - MOVE_MS - 5
+            app._step_held()
+            assert app.game.player == expected
+        assert app.game.moves == 3
+        app._release_direction(pygame.K_RIGHT)
+        app.animation.start = pygame.time.get_ticks() - MOVE_MS - 5
+        app._step_held()
+        assert app.game.player == (4, 1) and app.game.moves == 3
+        # Focus loss and Restart must not leave invisible held keys active.
+        keydown(pygame.K_LEFT)
+        assert app.game.player == (3, 1)
+        app._clear_direction_input()  # Same handler used on WINDOWFOCUSLOST.
+        app.animation.start = pygame.time.get_ticks() - MOVE_MS - 5
+        app._step_held()
+        assert app.game.player == (3, 1)
+        keydown(pygame.K_r, "r")
+        assert app.game.player == (1, 1) and app.game.moves == 0
+        assert app.animation is None and not app._held_directions
+        # Cyrillic keyboard fallback and blocked moves are still safe.
+        keydown(pygame.K_LEFT)
+        assert app.game.moves == 0 and app.animation is None
+        app._release_direction(pygame.K_LEFT)
+        keydown(pygame.K_UNKNOWN, "в")
+        assert app.game.player == (2, 1) and app.game.moves == 1
+        app._release_direction(pygame.K_UNKNOWN)
+        app._restart()
+
         # A final push completes in 180 ms, then glows for 240 ms before
         # the victory modal is allowed to appear.
         test_level = Level("Goal glow", (

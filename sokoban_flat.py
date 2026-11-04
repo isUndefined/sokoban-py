@@ -19,6 +19,19 @@ FPS = 60
 MOVE_MS = 180
 GAME_TILE_SIZE = 78  # Fixed logical pixels in the 1536x1024 design canvas
 GOAL_GLOW_MS = 240
+
+# Input is driven by physical press/release state instead of SDL key repeat.
+# This keeps held movement synchronized with the 180ms tile animation.
+DIRECTION_KEYS = {
+    pygame.K_UP: (0, -1), pygame.K_w: (0, -1),
+    pygame.K_DOWN: (0, 1), pygame.K_s: (0, 1),
+    pygame.K_LEFT: (-1, 0), pygame.K_a: (-1, 0),
+    pygame.K_RIGHT: (1, 0), pygame.K_d: (1, 0),
+}
+DIRECTION_CHARS = {
+    "ц": (0, -1), "ы": (0, 1),
+    "ф": (-1, 0), "в": (1, 0),
+}
 ASSETS = Path(__file__).resolve().parent / "assets" / "flat"
 BG_TOP = (12, 29, 54)
 BG_BOTTOM = (8, 24, 48)
@@ -80,11 +93,13 @@ class FlatSokobanApp:
         self.menu_open = False
         self.animation: MoveAnimation | None = None
         self.goal_glow: GoalGlow | None = None
+        self._held_directions: dict[int, tuple[int, int]] = {}
+        self._queued_direction: tuple[int, int] | None = None
         self._layout = (0.0, 0.0, 1.0)
         self._board = (0, 0, 0)
         self.toast = ""
         self.toast_until = 0
-        pygame.key.set_repeat(185, 165)
+        pygame.key.set_repeat()  # Disable OS-repeat, which drops events mid-animation.
 
     def _load_assets(self) -> dict[str, pygame.Surface]:
         """Load the approved atlas plus four independently oriented character views."""
@@ -536,6 +551,44 @@ class FlatSokobanApp:
         self.toast = msg
         self.toast_until = pygame.time.get_ticks() + 1150
 
+    def _clear_direction_input(self) -> None:
+        """Never carry a held key or buffered turn across UI actions."""
+        self._held_directions.clear()
+        self._queued_direction = None
+
+    def _direction_pressed(self, key: int, direction: tuple[int, int]) -> None:
+        """Accept a tap immediately, or buffer one turn during an animation."""
+        if self.menu_open or self.game.is_won or key in self._held_directions:
+            return
+        self._held_directions[key] = direction
+        if self.animation is not None:
+            # A fast tap during the previous step must not be lost even if
+            # the player releases the key before the animation completes.
+            self._queued_direction = direction
+        else:
+            self._move(*direction)
+
+    def _release_direction(self, key: int) -> None:
+        """Releasing a key stops repeat, without discarding an already-tapped turn."""
+        self._held_directions.pop(key, None)
+
+    def _step_held(self) -> None:
+        """Advance held controls by one logical tile after each animation."""
+        if self.menu_open or self.game.is_won:
+            return
+        if self.animation is not None:
+            if pygame.time.get_ticks() - self.animation.start < MOVE_MS:
+                return
+            # The renderer also finishes animations, but input should not
+            # depend on the ordering of display frames or missed key repeats.
+            self.animation = None
+        direction = self._queued_direction
+        self._queued_direction = None
+        if direction is None and self._held_directions:
+            direction = self._held_directions[next(reversed(self._held_directions))]
+        if direction is not None:
+            self._move(*direction)
+
     def _move(self, dx: int, dy: int) -> None:
         if self.animation or self.game.is_won or self.menu_open:
             return
@@ -558,12 +611,14 @@ class FlatSokobanApp:
             self.goal_glow = GoalGlow(target_box, now + MOVE_MS)
 
     def _undo(self) -> None:
+        self._clear_direction_input()
         self.animation = None
         self.goal_glow = None
         if not self.game.undo():
             self._show("Нет ходов для отмены")
 
     def _restart(self) -> None:
+        self._clear_direction_input()
         self.game.restart()
         self.animation = None
         self.goal_glow = None
@@ -572,6 +627,7 @@ class FlatSokobanApp:
 
     def _next(self) -> None:
         if self._victory_ready() and self.game.next_level():
+            self._clear_direction_input()
             self.animation = None
             self.goal_glow = None
             self.facing = "up"
@@ -588,9 +644,14 @@ class FlatSokobanApp:
             if action == "undo": self._undo()
             elif action == "restart": self._restart()
             elif action == "next": self._next()
-            elif action == "menu": self.menu_open = not self.menu_open
-            elif action == "close": self.menu_open = False
+            elif action == "menu":
+                self._clear_direction_input()
+                self.menu_open = not self.menu_open
+            elif action == "close":
+                self._clear_direction_input()
+                self.menu_open = False
             elif action.startswith("level:"):
+                self._clear_direction_input()
                 idx = int(action.partition(":")[2])
                 self.game = Game(levels=self.game.levels,level_index=idx)
                 self.animation = None
@@ -601,19 +662,24 @@ class FlatSokobanApp:
 
     def _key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
-            if self.menu_open: self.menu_open = False
-            else: self.running = False
+            self._clear_direction_input()
+            if self.menu_open:
+                self.menu_open = False
+            else:
+                self.running = False
             return
         if self.menu_open:
             return
-        char = event.unicode.lower()
-        if event.key == pygame.K_UP or char in ("w", "ц"): self._move(0,-1)
-        elif event.key == pygame.K_DOWN or char in ("s", "ы"): self._move(0,1)
-        elif event.key == pygame.K_LEFT or char in ("a", "ф"): self._move(-1,0)
-        elif event.key == pygame.K_RIGHT or char in ("d", "в"): self._move(1,0)
-        elif event.key == pygame.K_BACKSPACE or char in ("z", "я", "u", "г"): self._undo()
-        elif event.key == pygame.K_r or char == "к": self._restart()
-        elif event.key == pygame.K_n or char == "т": self._next()
+        char = getattr(event, "unicode", "").lower()
+        direction = DIRECTION_KEYS.get(event.key, DIRECTION_CHARS.get(char))
+        if direction is not None:
+            self._direction_pressed(event.key, direction)
+        elif event.key == pygame.K_BACKSPACE or char in ("z", "я", "u", "г"):
+            self._undo()
+        elif event.key == pygame.K_r or char == "к":
+            self._restart()
+        elif event.key == pygame.K_n or char == "т":
+            self._next()
 
     def run(self) -> None:
         try:
@@ -625,8 +691,13 @@ class FlatSokobanApp:
                         self.screen = pygame.display.set_mode((max(640, event.w), max(480, event.h)), pygame.RESIZABLE)
                     elif event.type == pygame.KEYDOWN:
                         self._key(event)
+                    elif event.type == pygame.KEYUP:
+                        self._release_direction(event.key)
+                    elif event.type == pygame.WINDOWFOCUSLOST:
+                        self._clear_direction_input()
                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                         self._click(event.pos)
+                self._step_held()
                 self._draw()
                 self.clock.tick(FPS)
         finally:
