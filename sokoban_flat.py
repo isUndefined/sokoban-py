@@ -324,8 +324,22 @@ class FlatSokobanApp:
             if (gx, gy) in outside:
                 continue
             left, top = self._cell_origin(gx, gy, x0, y0, tile)
-            pygame.draw.rect(self.canvas, (17, 41, 76),
-                             pygame.Rect(left, top, tile, tile))
+            # The previous opaque navy square behind each rounded sprite
+            # caused sharp dark corners. Keep joins between adjoining walls
+            # filled, but round only corners exposed on BOTH adjoining sides.
+            up = (gx, gy - 1) in walls
+            down = (gx, gy + 1) in walls
+            west = (gx - 1, gy) in walls
+            east = (gx + 1, gy) in walls
+            radius = max(5, round(tile * 0.095))
+            pygame.draw.rect(
+                self.canvas, (60, 99, 156),
+                pygame.Rect(left, top, tile, tile),
+                border_top_left_radius=radius if not up and not west else 0,
+                border_top_right_radius=radius if not up and not east else 0,
+                border_bottom_left_radius=radius if not down and not west else 0,
+                border_bottom_right_radius=radius if not down and not east else 0,
+            )
             self._blit_cell("wall", gx, gy, x0, y0, tile)
 
         for gx, gy in self.game.goals:
