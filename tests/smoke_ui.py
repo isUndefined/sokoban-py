@@ -63,6 +63,13 @@ def exercise() -> None:
             wall_x, wall_y = app._cell_origin(wx, wy, x0, y0, tile)
             wall_corner = app.canvas.get_at((wall_x + 1, wall_y + 1))
             assert wall_corner.b > wall_corner.r
+            # An isolated interior wall must reveal beige grout through
+            # rounded corners, not the dark navy outside-of-board backdrop.
+            assert (7, 3) in app.game.walls
+            ix, iy = app._cell_origin(7, 3, x0, y0, tile)
+            inner_corner = tuple(app.canvas.get_at((ix + 1, iy + 1))[:3])
+            assert inner_corner == FLOOR_GROUT, (
+                f"Interior wall corner is {inner_corner}, not floor grout")
             assert len(app.buttons) == 4
             footer = [button for button in app.buttons if button.action != "menu"]
             assert len({button.rect.width for button in footer}) == 1
